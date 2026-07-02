@@ -48,6 +48,14 @@
   }
   .swatch:hover .swatch-tip { display: block; }
 
+  /* Loupe */
+  #loupe {
+    position: fixed; width: 56px; height: 56px; border-radius: 50%;
+    border: 3px solid #fff; box-shadow: 0 4px 16px rgba(0,0,0,0.28);
+    pointer-events: none; z-index: 1000; display: none;
+    transform: translate(-50%, -100%); margin-top: -16px;
+  }
+
   /* Toast */
   #toast {
     position: fixed; bottom: 24px; right: 20px;
@@ -96,6 +104,7 @@
     <div class="history" id="history"></div>
   </div>
 </div>
+<div id="loupe"></div>
 <div id="toast"></div>
 
 <script>
@@ -241,20 +250,34 @@ function getPos(e, el) {
   };
 }
 
+function showLoupe(e) {
+  const pt = e.touches ? e.touches[0] : e;
+  const {r,g,b} = hsvToRgb(H,S,V);
+  const loupe = document.getElementById('loupe');
+  loupe.style.left = pt.clientX + 'px';
+  loupe.style.top  = pt.clientY + 'px';
+  loupe.style.background = rgbToHex(r,g,b);
+  loupe.style.display = 'block';
+}
+
+function hideLoupe() {
+  document.getElementById('loupe').style.display = 'none';
+}
+
 function onSV(e) {
   e.preventDefault();
   const {x,y} = getPos(e, svCanvas);
   const rect = svCanvas.getBoundingClientRect();
   S = Math.round(x / rect.width  * 100);
   V = Math.round((1 - y / rect.height) * 100);
-  redraw(); updateValues();
+  redraw(); updateValues(); showLoupe(e);
 }
 
 function onHue(e) {
   e.preventDefault();
   const {x} = getPos(e, hueCanvas);
   H = Math.round(x / hueCanvas.getBoundingClientRect().width * 360) % 360;
-  redraw(); updateValues();
+  redraw(); updateValues(); showLoupe(e);
 }
 
 function addHistoryEntry() {
@@ -271,7 +294,7 @@ function addHistoryEntry() {
 
 function bindDrag(el, handler) {
   let active = false;
-  const end = () => { if (active) { active=false; addHistoryEntry(); } };
+  const end = () => { if (active) { active=false; hideLoupe(); addHistoryEntry(); } };
   el.addEventListener('mousedown',  e => { active=true; handler(e); });
   el.addEventListener('mousemove',  e => { if (active) handler(e); });
   el.addEventListener('mouseup',    end);
