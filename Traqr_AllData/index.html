@@ -560,6 +560,7 @@
   .submit-btn.submit-btn-confirm { flex: 1; }
 
   /* 科目リストのドラッグ並び替え */
+  .input-option-item.opt-armed { background: var(--white); }
   .input-option-item.opt-dragging-placeholder { opacity: 0.35; }
   .opt-drag-clone {
     z-index: 600; margin: 0;
@@ -2469,6 +2470,7 @@ function onOptPointerDown(e, mode, idx) {
     if (optPhase === 'pending') {
       optPhase = 'armed';
       document.getElementById('selSheetList').classList.add('opt-reordering');
+      optDragEl.classList.add('opt-armed');
     }
   }, REORDER_HOLD_MS);
   document.addEventListener('pointermove', onOptPointerMove, { passive: false });
@@ -2501,6 +2503,7 @@ function onOptPointerMove(e) {
       optPhase = 'swiping';
       optDragEl.style.transition = 'none';
       document.getElementById('selSheetList').classList.remove('opt-reordering');
+      optDragEl.classList.remove('opt-armed');
       e.preventDefault();
       updateSwipeVisual(dx);
       return;
@@ -2599,6 +2602,7 @@ function onOptPointerUp() {
   document.removeEventListener('pointerup',   onOptPointerUp);
   document.removeEventListener('pointercancel', onOptPointerUp);
   document.getElementById('selSheetList').classList.remove('opt-reordering');
+  if (optDragEl) optDragEl.classList.remove('opt-armed');
 
   if (optPhase === 'dragging') {
     if (optAutoScrollRAF) { cancelAnimationFrame(optAutoScrollRAF); optAutoScrollRAF = null; }
