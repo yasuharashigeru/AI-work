@@ -34,7 +34,10 @@
     color: var(--text);
     min-height: 100vh;
     padding-bottom: calc(68px + env(safe-area-inset-bottom));
+    -webkit-user-select: none; user-select: none;
+    -webkit-touch-callout: none;
   }
+  input, textarea { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
 
   /* ---- Header ---- */
   header {
@@ -543,13 +546,19 @@
   .calc-key-equal { background: var(--green); color: white; border-right: none; }
   .calc-key-equal:active { background: var(--green-mid); }
 
-  /* Input row drag reorder */
-  .input-row-left { display: flex; align-items: center; gap: 10px; }
-  .row-drag-handle {
-    color: var(--border); font-size: 18px; line-height: 1; padding: 4px;
-    cursor: grab; touch-action: none; user-select: none;
+  /* 入力完了ボタンの分割 */
+  .submit-btn-row { display: flex; margin-top: 8px; }
+  .submit-btn-row .submit-btn { margin-top: 0; }
+  .submit-btn.submit-btn-reset {
+    flex: 0 0 32%;
+    background: var(--bg);
+    color: var(--text2);
   }
-  .input-row.dragging { opacity: 0.5; background: var(--green-pale); }
+  .submit-btn.submit-btn-reset:active { background: var(--border); }
+  .submit-btn.submit-btn-confirm { flex: 1; }
+
+  /* 科目リストのドラッグ並び替え */
+  .input-option-item.opt-dragging { opacity: 0.6; background: var(--green-pale); }
   .form-input, .form-select {
     width: 100%;
     padding: 13px 14px;
@@ -1134,59 +1143,47 @@
     </div>
   </div>
 
-  <!-- 並び替え可能な入力項目 -->
-  <div id="inputRowsContainer">
-    <!-- 日付 -->
-    <div class="input-row" data-key="date">
-      <div class="input-row-left">
-        <span class="row-drag-handle" onpointerdown="onRowDragStart(event)" onclick="event.stopPropagation()">⠿</span>
-        <span class="input-row-label">日付</span>
-      </div>
-      <div class="input-date-nav">
-        <button class="input-date-arrow" onclick="changeInputDate(-1)">‹</button>
-        <button class="input-date-val" id="inputDateLabel" onclick="openInputCalendar()">--</button>
-        <button class="input-date-arrow" onclick="changeInputDate(1)">›</button>
-      </div>
-    </div>
-
-    <!-- 金額 -->
-    <div class="input-row" data-key="amount" onclick="openNumpad()">
-      <div class="input-row-left">
-        <span class="row-drag-handle" onpointerdown="onRowDragStart(event)" onclick="event.stopPropagation()">⠿</span>
-        <span class="input-row-label">金額</span>
-      </div>
-      <span class="input-amount-display" id="inputAmountDisplay">¥0</span>
-    </div>
-
-    <!-- 受け取り方法 / 支払方法 -->
-    <div class="input-row" data-key="payment" onclick="openSelSheet('payment')">
-      <div class="input-row-left">
-        <span class="row-drag-handle" onpointerdown="onRowDragStart(event)" onclick="event.stopPropagation()">⠿</span>
-        <span class="input-row-label" id="paymentMethodLabel">受け取り方法</span>
-      </div>
-      <div class="input-row-value-nav">
-        <span class="input-row-value" id="inputPaymentDisplay">現金</span>
-        <span class="input-row-chevron">›</span>
-      </div>
-    </div>
-
-    <!-- 科目を選択（備考サブ表示付き） -->
-    <div class="input-row" data-key="subject" onclick="openSelSheet('subject')">
-      <div class="input-row-left">
-        <span class="row-drag-handle" onpointerdown="onRowDragStart(event)" onclick="event.stopPropagation()">⠿</span>
-        <span class="input-row-label">科目を選択</span>
-      </div>
-      <div class="input-row-value-nav">
-        <div class="input-subject-right">
-          <span class="input-row-value" id="inputSubjectDisplay">仕入高</span>
-          <span class="input-subject-memo" id="inputMemoSubDisplay"></span>
-        </div>
-        <span class="input-row-chevron">›</span>
-      </div>
+  <!-- 日付 -->
+  <div class="input-row">
+    <span class="input-row-label">日付</span>
+    <div class="input-date-nav">
+      <button class="input-date-arrow" onclick="changeInputDate(-1)">‹</button>
+      <button class="input-date-val" id="inputDateLabel" onclick="openInputCalendar()">--</button>
+      <button class="input-date-arrow" onclick="changeInputDate(1)">›</button>
     </div>
   </div>
 
-  <button class="submit-btn" id="submitBtn" onclick="saveEntry()">入力完了</button>
+  <!-- 金額 -->
+  <div class="input-row" onclick="openNumpad()">
+    <span class="input-row-label">金額</span>
+    <span class="input-amount-display" id="inputAmountDisplay">¥0</span>
+  </div>
+
+  <!-- 受け取り方法 / 支払方法 -->
+  <div class="input-row" onclick="openSelSheet('payment')">
+    <span class="input-row-label" id="paymentMethodLabel">受け取り方法</span>
+    <div class="input-row-value-nav">
+      <span class="input-row-value" id="inputPaymentDisplay">現金</span>
+      <span class="input-row-chevron">›</span>
+    </div>
+  </div>
+
+  <!-- 科目を選択（備考サブ表示付き） -->
+  <div class="input-row" onclick="openSelSheet('subject')">
+    <span class="input-row-label">科目を選択</span>
+    <div class="input-row-value-nav">
+      <div class="input-subject-right">
+        <span class="input-row-value" id="inputSubjectDisplay">仕入高</span>
+        <span class="input-subject-memo" id="inputMemoSubDisplay"></span>
+      </div>
+      <span class="input-row-chevron">›</span>
+    </div>
+  </div>
+
+  <div class="submit-btn-row">
+    <button class="submit-btn submit-btn-reset" onclick="resetInputForm()">リセット</button>
+    <button class="submit-btn submit-btn-confirm" id="submitBtn" onclick="saveEntry()">入力完了</button>
+  </div>
 </div>
 
 <!-- ========== 仕訳帳 TAB ========== -->
@@ -2012,7 +2009,6 @@ function saveCalRange() {
 //  Input
 // ============================================================
 function initInput() {
-  applyInputRowOrder();
   renderInputDate();
   renderInputRow();
 }
@@ -2099,7 +2095,9 @@ function openSelSheet(mode) {
   document.getElementById('selSheetList').innerHTML =
     items.map((item, i) => `
       <div class="input-option-item${item === selected ? ' selected' : ''}"
-           onclick="selSheetSelect(${i})"
+           data-name="${item.replace(/"/g,'&quot;')}"
+           onclick="if(!optJustDragged) selSheetSelect(${i})"
+           onpointerdown="onOptPointerDown(event,'${mode}')"
            ontouchstart="onSwipeStart(event)"
            ontouchend="onSwipeEnd(event,'${mode}',${i})"
            onmousedown="onDragStart(event)"
@@ -2445,55 +2443,101 @@ function calcApply() {
 }
 
 // ============================================================
-//  入力項目の並び替え（ドラッグ）
+//  科目リストの並び替え（長押し→ドラッグ、ハンドルなし）
 // ============================================================
-const KEY_INPUT_ROW_ORDER = 'traqr_input_row_order';
-let dragRowEl = null;
+const REORDER_HOLD_MS       = 350;
+const REORDER_MOVE_TOLERANCE = 10;
 
-function onRowDragStart(e) {
+let optPressTimer   = null;
+let optDragEl        = null;
+let optDragActive    = false;
+let optPressStartX   = 0;
+let optPressStartY   = 0;
+let optJustDragged   = false;
+
+function onOptPointerDown(e, mode) {
+  if (mode !== 'subject') return; // 並び替えは科目リストのみ
+  optPressStartX = e.clientX;
+  optPressStartY = e.clientY;
+  optDragEl      = e.currentTarget;
+  optDragActive  = false;
+  clearTimeout(optPressTimer);
+  optPressTimer = setTimeout(() => {
+    optDragActive = true;
+    optDragEl.classList.add('opt-dragging');
+  }, REORDER_HOLD_MS);
+  document.addEventListener('pointermove', onOptPointerMove, { passive: false });
+  document.addEventListener('pointerup',   onOptPointerUp);
+  document.addEventListener('pointercancel', onOptPointerUp);
+}
+
+function onOptPointerMove(e) {
+  if (!optDragEl) return;
+  const dx = e.clientX - optPressStartX;
+  const dy = e.clientY - optPressStartY;
+
+  if (!optDragActive) {
+    if (Math.abs(dx) > REORDER_MOVE_TOLERANCE || Math.abs(dy) > REORDER_MOVE_TOLERANCE) {
+      clearTimeout(optPressTimer);
+      optDragEl = null;
+    }
+    return;
+  }
+
   e.preventDefault();
-  e.stopPropagation();
-  dragRowEl = e.currentTarget.closest('.input-row');
-  dragRowEl.classList.add('dragging');
-  document.addEventListener('pointermove', onRowDragMove);
-  document.addEventListener('pointerup', onRowDragEnd);
-}
-
-function onRowDragMove(e) {
-  if (!dragRowEl) return;
-  const container = document.getElementById('inputRowsContainer');
-  const rows = [...container.querySelectorAll('.input-row')];
-  const after = rows.find(r => {
-    if (r === dragRowEl) return false;
-    const rect = r.getBoundingClientRect();
-    return e.clientY < rect.top + rect.height / 2;
+  const list   = document.getElementById('selSheetList');
+  const addRow = list.querySelector('.input-option-add');
+  const items  = [...list.querySelectorAll('.input-option-item')];
+  const after  = items.find(it => {
+    if (it === optDragEl) return false;
+    const r = it.getBoundingClientRect();
+    return e.clientY < r.top + r.height / 2;
   });
-  if (after) container.insertBefore(dragRowEl, after);
-  else container.appendChild(dragRowEl);
+  if (after) list.insertBefore(optDragEl, after);
+  else if (addRow) list.insertBefore(optDragEl, addRow);
 }
 
-function onRowDragEnd() {
-  if (!dragRowEl) return;
-  dragRowEl.classList.remove('dragging');
-  dragRowEl = null;
-  document.removeEventListener('pointermove', onRowDragMove);
-  document.removeEventListener('pointerup', onRowDragEnd);
-  saveInputRowOrder();
+function onOptPointerUp() {
+  clearTimeout(optPressTimer);
+  document.removeEventListener('pointermove', onOptPointerMove);
+  document.removeEventListener('pointerup',   onOptPointerUp);
+  document.removeEventListener('pointercancel', onOptPointerUp);
+  if (optDragEl && optDragActive) {
+    optDragEl.classList.remove('opt-dragging');
+    commitSubjectOrder();
+    optJustDragged = true;
+    setTimeout(() => { optJustDragged = false; }, 300);
+  }
+  optDragEl     = null;
+  optDragActive = false;
 }
 
-function saveInputRowOrder() {
-  const order = [...document.querySelectorAll('#inputRowsContainer .input-row')].map(r => r.dataset.key);
-  localStorage.setItem(KEY_INPUT_ROW_ORDER, JSON.stringify(order));
+function commitSubjectOrder() {
+  const list  = document.getElementById('selSheetList');
+  const order = [...list.querySelectorAll('.input-option-item')].map(el => el.dataset.name);
+  if (currentType === 'income') saveIncomeSubs(order); else saveExpenseSubs(order);
+  openSelSheet('subject'); // インデックスを新しい並びで再構築
 }
 
-function applyInputRowOrder() {
-  const saved = JSON.parse(localStorage.getItem(KEY_INPUT_ROW_ORDER) || 'null');
-  if (!saved) return;
-  const container = document.getElementById('inputRowsContainer');
-  saved.forEach(key => {
-    const el = container.querySelector(`.input-row[data-key="${key}"]`);
-    if (el) container.appendChild(el);
-  });
+// ============================================================
+//  入力フォームのリセット
+// ============================================================
+function resetInputForm() {
+  currentType    = 'expense';
+  inputDateVal   = new Date();
+  inputAmountStr = '';
+  inputPayment   = '現金';
+  inputSubject   = '';
+  inputMemo      = '';
+
+  document.getElementById('btnExpense').classList.add('active');
+  document.getElementById('btnIncome').classList.remove('active');
+  renderInputDate();
+  renderInputRow();
+  const el = document.getElementById('inputAmountDisplay');
+  el.textContent = '¥0';
+  el.classList.remove('empty');
+  showToast('リセットしました');
 }
 
 function numpadConfirm() {
