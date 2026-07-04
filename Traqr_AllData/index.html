@@ -523,30 +523,30 @@
 
   /* Calculator Screen */
   .calc-screen {
-    position: fixed; inset: 0; background: var(--bg); z-index: 700;
+    position: fixed; inset: 0; background: var(--white); z-index: 700;
     display: none; flex-direction: column;
   }
   .calc-screen.open { display: flex; }
   .calc-display-row {
-    flex-shrink: 0; padding: 26px 20px; text-align: right;
-    background: var(--white); border-bottom: 1px solid var(--border);
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    background: var(--white);
   }
   .calc-display {
-    font-size: 38px; font-weight: bold; color: var(--text);
+    font-size: 56px; font-weight: 400; color: var(--text);
     word-break: break-all; display: block;
   }
-  .calc-grid { display: grid; grid-template-columns: repeat(4, 1fr); flex: 1; }
+  .calc-display.empty { color: var(--text2); }
+  .calc-grid { display: grid; grid-template-columns: repeat(4, 1fr); flex-shrink: 0; }
   .calc-key {
-    border: none; background: var(--white); cursor: pointer;
-    font-size: 21px; font-weight: bold; color: var(--text);
+    border: none; background: #9B9B9B; cursor: pointer;
+    height: 78px;
+    font-size: 22px; font-weight: bold; color: #fff;
     font-family: "メイリオ", Meiryo, sans-serif;
-    border-right: 1px solid var(--border); border-bottom: 1px solid var(--border);
+    border-right: 1px solid #fff; border-bottom: 1px solid #fff;
   }
   .calc-key:nth-child(4n) { border-right: none; }
-  .calc-key:active { background: var(--bg); }
-  .calc-key-op { color: var(--green); }
-  .calc-key-equal { background: var(--green); color: white; border-right: none; }
-  .calc-key-equal:active { background: var(--green-mid); }
+  .calc-key:active { background: #808080; }
+  .calc-key-equal { border-right: none; border-bottom: none; }
 
   /* 入力完了ボタンの分割 */
   .submit-btn-row { display: flex; margin-top: 8px; }
@@ -1424,37 +1424,35 @@
 <!-- Calculator Screen -->
 <div id="calcScreen" class="calc-screen">
   <div class="edit-screen-header">
-    <button class="edit-back-btn" onclick="closeCalcScreen()">‹ 戻る</button>
+    <button class="edit-back-btn" onclick="closeCalcScreen()">‹</button>
     <span class="edit-screen-title">電卓</span>
-    <button class="edit-save-btn" onclick="calcApply()">決定</button>
+    <button class="edit-back-btn" style="visibility:hidden">‹</button>
   </div>
   <div class="calc-display-row">
     <span class="calc-display" id="calcDisplay">0</span>
   </div>
   <div class="calc-grid">
-    <button class="calc-key calc-key-op" onclick="calcClear()">C</button>
-    <button class="calc-key calc-key-op" onclick="calcToggleSign()">±</button>
-    <button class="calc-key calc-key-op" onclick="calcBack()">⌫</button>
-    <button class="calc-key calc-key-op" onclick="calcOperator('÷')">÷</button>
-
     <button class="calc-key" onclick="calcDigit('7')">7</button>
     <button class="calc-key" onclick="calcDigit('8')">8</button>
     <button class="calc-key" onclick="calcDigit('9')">9</button>
-    <button class="calc-key calc-key-op" onclick="calcOperator('×')">×</button>
+    <button class="calc-key" onclick="calcOperator('÷')">÷</button>
 
     <button class="calc-key" onclick="calcDigit('4')">4</button>
     <button class="calc-key" onclick="calcDigit('5')">5</button>
     <button class="calc-key" onclick="calcDigit('6')">6</button>
-    <button class="calc-key calc-key-op" onclick="calcOperator('−')">−</button>
+    <button class="calc-key" onclick="calcOperator('×')">×</button>
 
     <button class="calc-key" onclick="calcDigit('1')">1</button>
     <button class="calc-key" onclick="calcDigit('2')">2</button>
     <button class="calc-key" onclick="calcDigit('3')">3</button>
-    <button class="calc-key calc-key-op" onclick="calcOperator('+')">+</button>
+    <button class="calc-key" onclick="calcOperator('−')">−</button>
 
-    <button class="calc-key" onclick="calcDigit('0')" style="grid-column:span 2">0</button>
     <button class="calc-key" onclick="calcDigit('.')">.</button>
-    <button class="calc-key calc-key-equal" onclick="calcEquals()">=</button>
+    <button class="calc-key" onclick="calcDigit('0')">0</button>
+    <button class="calc-key" onclick="calcClear()">C</button>
+    <button class="calc-key" onclick="calcOperator('+')">+</button>
+
+    <button class="calc-key calc-key-equal" onclick="calcEquals()" style="grid-column:span 4">=</button>
   </div>
 </div>
 
@@ -2346,11 +2344,17 @@ let calcCurrent = '';
 let calcAcc     = 0;
 let calcOp      = null;
 
+function setCalcDisplay(text) {
+  const el = document.getElementById('calcDisplay');
+  el.textContent = text;
+  el.classList.toggle('empty', text === '0');
+}
+
 function openCalcScreen() {
   calcCurrent = numpadStr || '';
   calcAcc = 0;
   calcOp  = null;
-  document.getElementById('calcDisplay').textContent = calcCurrent || '0';
+  setCalcDisplay(calcCurrent || '0');
   document.getElementById('calcScreen').classList.add('open');
 }
 
@@ -2374,7 +2378,7 @@ function calcDigit(d) {
   if (d === '.' && calcCurrent.includes('.')) return;
   if (calcCurrent === '0' && d !== '.') calcCurrent = '';
   calcCurrent += d;
-  document.getElementById('calcDisplay').textContent = calcCurrent;
+  setCalcDisplay(calcCurrent);
 }
 
 function calcOperator(op) {
@@ -2382,48 +2386,29 @@ function calcOperator(op) {
   calcAcc = (calcOp && calcCurrent !== '') ? calcApplyOp(calcAcc, calcOp, cur) : cur;
   calcOp = op;
   calcCurrent = '';
-  document.getElementById('calcDisplay').textContent = fmt(calcRound(calcAcc));
+  setCalcDisplay(fmt(calcRound(calcAcc)));
 }
 
 function calcEquals() {
-  if (!calcOp) return;
+  // ＝を押したら計算して、その場で金額に反映し電卓を閉じる
   const cur = parseFloat(calcCurrent || 0);
-  calcAcc = calcApplyOp(calcAcc, calcOp, cur);
-  calcOp = null;
-  calcCurrent = String(calcRound(calcAcc));
-  document.getElementById('calcDisplay').textContent = fmt(calcRound(calcAcc));
+  if (calcOp) {
+    calcAcc = calcApplyOp(calcAcc, calcOp, cur);
+    calcOp = null;
+  } else {
+    calcAcc = cur;
+  }
+  const val = Math.round(Math.abs(calcAcc || 0));
+  numpadStr = val > 0 ? String(val) : '';
+  document.getElementById('numpadDisplay').textContent = numpadStr ? fmt(parseInt(numpadStr)) : '0';
+  closeCalcScreen();
 }
 
 function calcClear() {
   calcCurrent = '';
   calcAcc = 0;
   calcOp = null;
-  document.getElementById('calcDisplay').textContent = '0';
-}
-
-function calcBack() {
-  if (calcCurrent) {
-    calcCurrent = calcCurrent.slice(0, -1);
-    document.getElementById('calcDisplay').textContent = calcCurrent || '0';
-  }
-}
-
-function calcToggleSign() {
-  if (calcCurrent) {
-    calcCurrent = calcCurrent.startsWith('-') ? calcCurrent.slice(1) : '-' + calcCurrent;
-  } else {
-    calcAcc = -calcAcc;
-    calcCurrent = String(calcRound(calcAcc));
-  }
-  document.getElementById('calcDisplay').textContent = calcCurrent;
-}
-
-function calcApply() {
-  const raw = calcCurrent !== '' ? parseFloat(calcCurrent) : calcAcc;
-  const val = Math.round(Math.abs(raw || 0));
-  numpadStr = val > 0 ? String(val) : '';
-  document.getElementById('numpadDisplay').textContent = numpadStr ? fmt(parseInt(numpadStr)) : '0';
-  closeCalcScreen();
+  setCalcDisplay('0');
 }
 
 // ============================================================
