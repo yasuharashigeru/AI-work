@@ -428,7 +428,7 @@
     font-size: 15px; color: var(--text); cursor: pointer;
   }
   .input-option-item.selected { color: var(--green); font-weight: bold; }
-  .input-option-item.opt-reorderable { touch-action: none; }
+  .input-option-item.opt-reorderable { touch-action: none; transition: transform 0.18s ease; }
   .input-option-check { font-size: 16px; color: var(--green); }
   .input-option-add {
     padding: 14px 16px;
@@ -2104,11 +2104,12 @@ function openSelSheet(mode) {
       <div class="input-option-item${item === selected ? ' selected' : ''}${isPayment ? '' : ' opt-reorderable'}"
            data-name="${item.replace(/"/g,'&quot;')}"
            onclick="if(!optJustDragged) selSheetSelect(${i})"
-           onpointerdown="onOptPointerDown(event,'${mode}')"
+           onpointerdown="onOptPointerDown(event,'${mode}',${i})"
+           ${isPayment ? `
            ontouchstart="onSwipeStart(event)"
            ontouchend="onSwipeEnd(event,'${mode}',${i})"
            onmousedown="onDragStart(event)"
-           onmouseup="onDragEnd(event,'${mode}',${i})">
+           onmouseup="onDragEnd(event,'${mode}',${i})"` : ''}>
         <span>${item}</span>
         ${item === selected ? '<span class="input-option-check">✓</span>' : ''}
       </div>`).join('') +
@@ -2237,12 +2238,10 @@ function openMemoLayer() {
     `<span class="sel-sheet-back" onclick="openSelSheet('subject')">‹</span><span>備考を選択（${inputSubject}）</span>`;
   document.getElementById('selSheetList').innerHTML =
     memos.map((m, i) => `
-      <div class="input-option-item"
-           onclick="memoSheetSelect(${i})"
-           ontouchstart="onSwipeStart(event)"
-           ontouchend="onSwipeEnd(event,'memo',${i})"
-           onmousedown="onDragStart(event)"
-           onmouseup="onDragEnd(event,'memo',${i})">
+      <div class="input-option-item opt-reorderable"
+           data-name="${m.replace(/"/g,'&quot;')}"
+           onclick="if(!optJustDragged) memoSheetSelect(${i})"
+           onpointerdown="onOptPointerDown(event,'memo',${i})">
         <span>${m}</span>
         ${m === inputMemo ? '<span class="input-option-check">✓</span>' : ''}
       </div>`).join('') +
@@ -2450,34 +2449,43 @@ function calcApply() {
 }
 
 // ============================================================
-//  科目リストの並び替え（長押し→ドラッグ、ハンドルなし、自動スクロール対応）
+//  科目・備考リストの並び替え（長押し→ドラッグ）と左スワイプ
 //
 //  .input-option-item は touch-action:none にしてあるため、このリストの
 //  スクロールはブラウザ任せにできず、長押し前の縦移動を「スクロール」として
 //  自分で処理する（じゃないとpointercancelでドラッグ自体が壊れる）。
+//  横移動は「スワイプ」として、指に合わせて左に動くリアクションを付ける。
 // ============================================================
-const REORDER_HOLD_MS         = 350;
-const REORDER_MOVE_TOLERANCE  = 8;
-const REORDER_EDGE_ZONE       = 48;  // このpx以内に近づくと自動スクロール
-const REORDER_MAX_SCROLL_SPEED = 14; // 1フレームあたりの最大スクロールpx
+const REORDERABLE_MODES        = ['subject', 'memo'];
+const REORDER_HOLD_MS          = 350;
+const REORDER_MOVE_TOLERANCE   = 8;
+const REORDER_EDGE_ZONE        = 48;  // このpx以内に近づくと自動スクロール
+const REORDER_MAX_SCROLL_SPEED = 14;  // 1フレームあたりの最大スクロールpx
+const SWIPE_MAX_OFFSET         = 80;  // スワイプで動かす最大px
+const SWIPE_OPEN_THRESHOLD     = 40;  // これを超えたら操作メニューを開く
 
 let optPressTimer    = null;
 let optDragEl        = null;   // 実データを持つ元要素（並び替え先の「置き場」として使う）
 let optDragClone     = null;   // 指に追従する見た目だけのフローティング要素
-let optPhase         = 'idle'; // 'idle' | 'pending' | 'scrolling' | 'armed' | 'dragging'
+let optPhase         = 'idle'; // 'idle' | 'pending' | 'scrolling' | 'armed' | 'dragging' | 'swiping'
+let optMode          = '';
+let optIdx           = -1;
 let optPressStartX   = 0;
 let optPressStartY   = 0;
 let optGrabOffsetY   = 0;
 let optLastClientY   = 0;
 let optScrollLastY   = 0;
+let optLastDx        = 0;
 let optAutoScrollRAF = null;
 let optJustDragged   = false;
 
-function onOptPointerDown(e, mode) {
-  if (mode !== 'subject') return; // 並び替えは科目リストのみ
+function onOptPointerDown(e, mode, idx) {
+  if (!REORDERABLE_MODES.includes(mode)) return;
   optPressStartX = e.clientX;
   optPressStartY = e.clientY;
   optDragEl      = e.currentTarget;
+  optMode        = mode;
+  optIdx         = idx;
   optPhase       = 'pending';
   clearTimeout(optPressTimer);
   optPressTimer = setTimeout(() => {
@@ -2493,39 +2501,38 @@ function onOptPointerMove(e) {
   const dx = e.clientX - optPressStartX;
   const dy = e.clientY - optPressStartY;
 
-  if (optPhase === 'pending') {
+  if (optPhase === 'pending' || optPhase === 'armed') {
     if (Math.abs(dx) < REORDER_MOVE_TOLERANCE && Math.abs(dy) < REORDER_MOVE_TOLERANCE) return;
     clearTimeout(optPressTimer);
     if (Math.abs(dy) > Math.abs(dx)) {
-      // 長押し確定前の縦移動 → 通常のリストスクロールとして扱う（自前で処理）
-      optPhase = 'scrolling';
-      optScrollLastY = e.clientY;
-      e.preventDefault();
+      if (optPhase === 'armed') {
+        startOptDrag(e.clientY);
+        // ここでreturnせず、そのままdragging分岐に処理を続けさせる
+        // （最初の1回のドラッグ位置反映が抜け落ちるのを防ぐため）
+      } else {
+        // 長押し確定前の縦移動 → 通常のリストスクロールとして扱う（自前で処理）
+        optPhase = 'scrolling';
+        optScrollLastY = e.clientY;
+        e.preventDefault();
+        return;
+      }
     } else {
-      // 長押し確定前の横移動 → 通常のタップ/スワイプに任せる
-      optPhase  = 'idle';
-      optDragEl = null;
+      // 横移動 → 左スワイプ。指に合わせて要素を左へ動かす
+      optPhase = 'swiping';
+      optDragEl.style.transition = 'none';
+      e.preventDefault();
+      updateSwipeVisual(dx);
+      return;
     }
-    return;
-  }
-
-  if (optPhase === 'scrolling') {
+  } else if (optPhase === 'scrolling') {
     e.preventDefault();
     document.getElementById('selSheetPanel').scrollTop -= (e.clientY - optScrollLastY);
     optScrollLastY = e.clientY;
     return;
-  }
-
-  if (optPhase === 'armed') {
-    if (Math.abs(dx) < REORDER_MOVE_TOLERANCE && Math.abs(dy) < REORDER_MOVE_TOLERANCE) return;
-    if (Math.abs(dy) > Math.abs(dx)) {
-      startOptDrag(e.clientY);
-    } else {
-      // 長押し後でも横方向の動きなら「左スワイプ」とみなし並び替えは開始しない
-      optPhase  = 'idle';
-      optDragEl = null;
-      return;
-    }
+  } else if (optPhase === 'swiping') {
+    e.preventDefault();
+    updateSwipeVisual(dx);
+    return;
   }
 
   if (optPhase === 'dragging') {
@@ -2534,6 +2541,11 @@ function onOptPointerMove(e) {
     positionDragClone();
     reorderByClonePosition();
   }
+}
+
+function updateSwipeVisual(dx) {
+  optLastDx = Math.max(-SWIPE_MAX_OFFSET, Math.min(0, dx));
+  optDragEl.style.transform = `translateX(${optLastDx}px)`;
 }
 
 function startOptDrag(clientY) {
@@ -2565,7 +2577,7 @@ function positionDragClone() {
 function reorderByClonePosition() {
   const list   = document.getElementById('selSheetList');
   const addRow = list.querySelector('.input-option-add');
-  const items  = [...list.querySelectorAll('.input-option-item')].filter(it => it !== optDragEl);
+  const items  = [...list.querySelectorAll('.input-option-item.opt-reorderable')].filter(it => it !== optDragEl);
   const after  = items.find(it => {
     const r = it.getBoundingClientRect();
     return optLastClientY < r.top + r.height / 2;
@@ -2612,20 +2624,32 @@ function onOptPointerUp() {
     if (optDragEl) {
       optDragEl.classList.remove('opt-dragging-placeholder');
     }
-    commitSubjectOrder();
+    commitReorder();
     optJustDragged = true;
     setTimeout(() => { optJustDragged = false; }, 300);
+  } else if (optPhase === 'swiping') {
+    const el = optDragEl, mode = optMode, idx = optIdx;
+    el.style.transition = '';
+    el.style.transform  = 'translateX(0px)';
+    if (optLastDx <= -SWIPE_OPEN_THRESHOLD) openItemAction(mode, idx);
   }
 
   optPhase  = 'idle';
   optDragEl = null;
 }
 
-function commitSubjectOrder() {
+function commitReorder() {
   const list  = document.getElementById('selSheetList');
-  const order = [...list.querySelectorAll('.input-option-item')].map(el => el.dataset.name);
-  if (currentType === 'income') saveIncomeSubs(order); else saveExpenseSubs(order);
-  openSelSheet('subject'); // インデックスを新しい並びで再構築
+  const order = [...list.querySelectorAll('.input-option-item.opt-reorderable')].map(el => el.dataset.name);
+  if (optMode === 'memo') {
+    const subs = getMemoSubs();
+    subs[inputSubject] = order;
+    saveMemoSubs(subs);
+    openMemoLayer(); // インデックスを新しい並びで再構築
+  } else {
+    if (currentType === 'income') saveIncomeSubs(order); else saveExpenseSubs(order);
+    openSelSheet('subject'); // インデックスを新しい並びで再構築
+  }
 }
 
 // ============================================================
