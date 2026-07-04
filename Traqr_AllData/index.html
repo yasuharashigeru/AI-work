@@ -2466,7 +2466,10 @@ function onOptPointerDown(e, mode, idx) {
   optPhase       = 'pending';
   clearTimeout(optPressTimer);
   optPressTimer = setTimeout(() => {
-    if (optPhase === 'pending') optPhase = 'armed';
+    if (optPhase === 'pending') {
+      optPhase = 'armed';
+      document.getElementById('selSheetList').classList.add('opt-reordering');
+    }
   }, REORDER_HOLD_MS);
   document.addEventListener('pointermove', onOptPointerMove, { passive: false });
   document.addEventListener('pointerup',   onOptPointerUp);
@@ -2497,6 +2500,7 @@ function onOptPointerMove(e) {
       // 横移動 → 左スワイプ。指に合わせて要素を左へ動かす
       optPhase = 'swiping';
       optDragEl.style.transition = 'none';
+      document.getElementById('selSheetList').classList.remove('opt-reordering');
       e.preventDefault();
       updateSwipeVisual(dx);
       return;
@@ -2541,7 +2545,6 @@ function startOptDrag(clientY) {
   document.body.appendChild(optDragClone);
 
   optDragEl.classList.add('opt-dragging-placeholder');
-  document.getElementById('selSheetList').classList.add('opt-reordering');
 
   positionDragClone();
   runOptAutoScrollLoop();
@@ -2595,6 +2598,7 @@ function onOptPointerUp() {
   document.removeEventListener('pointermove', onOptPointerMove);
   document.removeEventListener('pointerup',   onOptPointerUp);
   document.removeEventListener('pointercancel', onOptPointerUp);
+  document.getElementById('selSheetList').classList.remove('opt-reordering');
 
   if (optPhase === 'dragging') {
     if (optAutoScrollRAF) { cancelAnimationFrame(optAutoScrollRAF); optAutoScrollRAF = null; }
@@ -2602,7 +2606,6 @@ function onOptPointerUp() {
     if (optDragEl) {
       optDragEl.classList.remove('opt-dragging-placeholder');
     }
-    document.getElementById('selSheetList').classList.remove('opt-reordering');
     commitReorder();
     optJustDragged = true;
     setTimeout(() => { optJustDragged = false; }, 300);
