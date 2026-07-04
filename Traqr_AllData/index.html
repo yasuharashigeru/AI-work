@@ -566,6 +566,7 @@
     box-shadow: 0 6px 18px rgba(0,0,0,0.2);
     pointer-events: none;
   }
+  #selSheetList.opt-reordering { background: var(--bg); }
   .form-input, .form-select {
     width: 100%;
     padding: 13px 14px;
@@ -1540,7 +1541,6 @@ let inputMemo       = '';
 let numpadStr       = '';
 let calMode         = 'pl';
 let calTempInputDate = new Date();
-let swipeStartX      = 0;
 let itemActionMode   = '';
 let itemActionIdx    = -1;
 let editingEntryId   = null;
@@ -2101,15 +2101,10 @@ function openSelSheet(mode) {
 
   document.getElementById('selSheetList').innerHTML =
     items.map((item, i) => `
-      <div class="input-option-item${item === selected ? ' selected' : ''}${isPayment ? '' : ' opt-reorderable'}"
+      <div class="input-option-item opt-reorderable${item === selected ? ' selected' : ''}"
            data-name="${item.replace(/"/g,'&quot;')}"
            onclick="if(!optJustDragged) selSheetSelect(${i})"
-           onpointerdown="onOptPointerDown(event,'${mode}',${i})"
-           ${isPayment ? `
-           ontouchstart="onSwipeStart(event)"
-           ontouchend="onSwipeEnd(event,'${mode}',${i})"
-           onmousedown="onDragStart(event)"
-           onmouseup="onDragEnd(event,'${mode}',${i})"` : ''}>
+           onpointerdown="onOptPointerDown(event,'${mode}',${i})">
         <span>${item}</span>
         ${item === selected ? '<span class="input-option-check">✓</span>' : ''}
       </div>`).join('') +
@@ -2124,25 +2119,6 @@ function openSelSheet(mode) {
 function closeSelSheet() {
   document.getElementById('selSheetOverlay').style.display = 'none';
   document.getElementById('selSheetPanel').style.display   = 'none';
-}
-
-function onSwipeStart(e) {
-  swipeStartX = e.touches[0].clientX;
-}
-function onSwipeEnd(e, mode, idx) {
-  if (swipeStartX - e.changedTouches[0].clientX > 40) {
-    e.preventDefault();
-    openItemAction(mode, idx);
-  }
-}
-function onDragStart(e) {
-  swipeStartX = e.clientX;
-}
-function onDragEnd(e, mode, idx) {
-  if (swipeStartX - e.clientX > 40) {
-    e.preventDefault();
-    openItemAction(mode, idx);
-  }
 }
 
 function openItemAction(mode, idx) {
@@ -2168,7 +2144,7 @@ function renameItem() {
   else if (isMemo) items = getMemoSubs()[inputSubject] || [];
   else             items = currentType === 'income' ? getIncomeSubs() : getExpenseSubs();
   const oldName = items[itemActionIdx];
-  const newName = prompt(`新しい名前を入力してください（現在: ${oldName}）`);
+  const newName = prompt('新しい名前を入力してください', oldName);
   if (!newName || !newName.trim() || newName.trim() === oldName) { closeItemAction(); return; }
   items[itemActionIdx] = newName.trim();
   if (isPayment) {
@@ -2456,7 +2432,7 @@ function calcApply() {
 //  自分で処理する（じゃないとpointercancelでドラッグ自体が壊れる）。
 //  横移動は「スワイプ」として、指に合わせて左に動くリアクションを付ける。
 // ============================================================
-const REORDERABLE_MODES        = ['subject', 'memo'];
+const REORDERABLE_MODES        = ['subject', 'memo', 'payment'];
 const REORDER_HOLD_MS          = 350;
 const REORDER_MOVE_TOLERANCE   = 8;
 const REORDER_EDGE_ZONE        = 48;  // このpx以内に近づくと自動スクロール
@@ -2564,6 +2540,7 @@ function startOptDrag(clientY) {
   document.body.appendChild(optDragClone);
 
   optDragEl.classList.add('opt-dragging-placeholder');
+  document.getElementById('selSheetList').classList.add('opt-reordering');
 
   positionDragClone();
   runOptAutoScrollLoop();
@@ -2624,6 +2601,7 @@ function onOptPointerUp() {
     if (optDragEl) {
       optDragEl.classList.remove('opt-dragging-placeholder');
     }
+    document.getElementById('selSheetList').classList.remove('opt-reordering');
     commitReorder();
     optJustDragged = true;
     setTimeout(() => { optJustDragged = false; }, 300);
@@ -2646,6 +2624,9 @@ function commitReorder() {
     subs[inputSubject] = order;
     saveMemoSubs(subs);
     openMemoLayer(); // インデックスを新しい並びで再構築
+  } else if (optMode === 'payment') {
+    savePaymentMethods(order);
+    openSelSheet('payment'); // インデックスを新しい並びで再構築
   } else {
     if (currentType === 'income') saveIncomeSubs(order); else saveExpenseSubs(order);
     openSelSheet('subject'); // インデックスを新しい並びで再構築
