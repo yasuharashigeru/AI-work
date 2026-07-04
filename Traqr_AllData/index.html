@@ -428,6 +428,7 @@
     font-size: 15px; color: var(--text); cursor: pointer;
   }
   .input-option-item.selected { color: var(--green); font-weight: bold; }
+  .input-option-item.opt-reorderable { touch-action: none; }
   .input-option-check { font-size: 16px; color: var(--green); }
   .input-option-add {
     padding: 14px 16px;
@@ -461,7 +462,7 @@
   }
   /* Item Action Dialog */
   .item-action-modal {
-    position: fixed; inset: 0; z-index: 520;
+    position: fixed; inset: 0; z-index: 560;
     display: flex; align-items: center; justify-content: center;
     background: rgba(0,0,0,0.35);
   }
@@ -558,7 +559,13 @@
   .submit-btn.submit-btn-confirm { flex: 1; }
 
   /* 科目リストのドラッグ並び替え */
-  .input-option-item.opt-dragging { opacity: 0.6; background: var(--green-pale); }
+  .input-option-item.opt-dragging-placeholder { opacity: 0.35; }
+  .opt-drag-clone {
+    z-index: 600; margin: 0;
+    background: var(--white);
+    box-shadow: 0 6px 18px rgba(0,0,0,0.2);
+    pointer-events: none;
+  }
   .form-input, .form-select {
     width: 100%;
     padding: 13px 14px;
@@ -2094,7 +2101,7 @@ function openSelSheet(mode) {
 
   document.getElementById('selSheetList').innerHTML =
     items.map((item, i) => `
-      <div class="input-option-item${item === selected ? ' selected' : ''}"
+      <div class="input-option-item${item === selected ? ' selected' : ''}${isPayment ? '' : ' opt-reorderable'}"
            data-name="${item.replace(/"/g,'&quot;')}"
            onclick="if(!optJustDragged) selSheetSelect(${i})"
            onpointerdown="onOptPointerDown(event,'${mode}')"
@@ -2443,16 +2450,27 @@ function calcApply() {
 }
 
 // ============================================================
-//  科目リストの並び替え（長押し→ドラッグ、ハンドルなし）
+//  科目リストの並び替え（長押し→ドラッグ、ハンドルなし、自動スクロール対応）
+//
+//  .input-option-item は touch-action:none にしてあるため、このリストの
+//  スクロールはブラウザ任せにできず、長押し前の縦移動を「スクロール」として
+//  自分で処理する（じゃないとpointercancelでドラッグ自体が壊れる）。
 // ============================================================
-const REORDER_HOLD_MS       = 350;
-const REORDER_MOVE_TOLERANCE = 10;
+const REORDER_HOLD_MS         = 350;
+const REORDER_MOVE_TOLERANCE  = 8;
+const REORDER_EDGE_ZONE       = 48;  // このpx以内に近づくと自動スクロール
+const REORDER_MAX_SCROLL_SPEED = 14; // 1フレームあたりの最大スクロールpx
 
-let optPressTimer   = null;
-let optDragEl        = null;
-let optDragActive    = false;
+let optPressTimer    = null;
+let optDragEl        = null;   // 実データを持つ元要素（並び替え先の「置き場」として使う）
+let optDragClone     = null;   // 指に追従する見た目だけのフローティング要素
+let optPhase         = 'idle'; // 'idle' | 'pending' | 'scrolling' | 'armed' | 'dragging'
 let optPressStartX   = 0;
 let optPressStartY   = 0;
+let optGrabOffsetY   = 0;
+let optLastClientY   = 0;
+let optScrollLastY   = 0;
+let optAutoScrollRAF = null;
 let optJustDragged   = false;
 
 function onOptPointerDown(e, mode) {
@@ -2460,11 +2478,10 @@ function onOptPointerDown(e, mode) {
   optPressStartX = e.clientX;
   optPressStartY = e.clientY;
   optDragEl      = e.currentTarget;
-  optDragActive  = false;
+  optPhase       = 'pending';
   clearTimeout(optPressTimer);
   optPressTimer = setTimeout(() => {
-    optDragActive = true;
-    optDragEl.classList.add('opt-dragging');
+    if (optPhase === 'pending') optPhase = 'armed';
   }, REORDER_HOLD_MS);
   document.addEventListener('pointermove', onOptPointerMove, { passive: false });
   document.addEventListener('pointerup',   onOptPointerUp);
@@ -2472,29 +2489,115 @@ function onOptPointerDown(e, mode) {
 }
 
 function onOptPointerMove(e) {
-  if (!optDragEl) return;
+  if (!optDragEl || optPhase === 'idle') return;
   const dx = e.clientX - optPressStartX;
   const dy = e.clientY - optPressStartY;
 
-  if (!optDragActive) {
-    if (Math.abs(dx) > REORDER_MOVE_TOLERANCE || Math.abs(dy) > REORDER_MOVE_TOLERANCE) {
-      clearTimeout(optPressTimer);
+  if (optPhase === 'pending') {
+    if (Math.abs(dx) < REORDER_MOVE_TOLERANCE && Math.abs(dy) < REORDER_MOVE_TOLERANCE) return;
+    clearTimeout(optPressTimer);
+    if (Math.abs(dy) > Math.abs(dx)) {
+      // 長押し確定前の縦移動 → 通常のリストスクロールとして扱う（自前で処理）
+      optPhase = 'scrolling';
+      optScrollLastY = e.clientY;
+      e.preventDefault();
+    } else {
+      // 長押し確定前の横移動 → 通常のタップ/スワイプに任せる
+      optPhase  = 'idle';
       optDragEl = null;
     }
     return;
   }
 
-  e.preventDefault();
+  if (optPhase === 'scrolling') {
+    e.preventDefault();
+    document.getElementById('selSheetPanel').scrollTop -= (e.clientY - optScrollLastY);
+    optScrollLastY = e.clientY;
+    return;
+  }
+
+  if (optPhase === 'armed') {
+    if (Math.abs(dx) < REORDER_MOVE_TOLERANCE && Math.abs(dy) < REORDER_MOVE_TOLERANCE) return;
+    if (Math.abs(dy) > Math.abs(dx)) {
+      startOptDrag(e.clientY);
+    } else {
+      // 長押し後でも横方向の動きなら「左スワイプ」とみなし並び替えは開始しない
+      optPhase  = 'idle';
+      optDragEl = null;
+      return;
+    }
+  }
+
+  if (optPhase === 'dragging') {
+    e.preventDefault();
+    optLastClientY = e.clientY;
+    positionDragClone();
+    reorderByClonePosition();
+  }
+}
+
+function startOptDrag(clientY) {
+  optPhase = 'dragging';
+  const rect = optDragEl.getBoundingClientRect();
+  optGrabOffsetY = clientY - rect.top;
+  optLastClientY = clientY;
+
+  optDragClone = optDragEl.cloneNode(true);
+  optDragClone.classList.add('opt-drag-clone');
+  optDragClone.style.position = 'fixed';
+  optDragClone.style.left    = rect.left + 'px';
+  optDragClone.style.top     = rect.top + 'px';
+  optDragClone.style.width   = rect.width + 'px';
+  optDragClone.style.height  = rect.height + 'px';
+  document.body.appendChild(optDragClone);
+
+  optDragEl.classList.add('opt-dragging-placeholder');
+
+  positionDragClone();
+  runOptAutoScrollLoop();
+}
+
+function positionDragClone() {
+  if (!optDragClone) return;
+  optDragClone.style.top = (optLastClientY - optGrabOffsetY) + 'px';
+}
+
+function reorderByClonePosition() {
   const list   = document.getElementById('selSheetList');
   const addRow = list.querySelector('.input-option-add');
-  const items  = [...list.querySelectorAll('.input-option-item')];
+  const items  = [...list.querySelectorAll('.input-option-item')].filter(it => it !== optDragEl);
   const after  = items.find(it => {
-    if (it === optDragEl) return false;
     const r = it.getBoundingClientRect();
-    return e.clientY < r.top + r.height / 2;
+    return optLastClientY < r.top + r.height / 2;
   });
-  if (after) list.insertBefore(optDragEl, after);
-  else if (addRow) list.insertBefore(optDragEl, addRow);
+  if (after) {
+    if (after !== optDragEl.nextSibling) list.insertBefore(optDragEl, after);
+  } else if (addRow) {
+    if (addRow.previousSibling !== optDragEl) list.insertBefore(optDragEl, addRow);
+  }
+}
+
+function runOptAutoScrollLoop() {
+  if (optAutoScrollRAF) return;
+  const step = () => {
+    if (optPhase !== 'dragging') { optAutoScrollRAF = null; return; }
+    const panel = document.getElementById('selSheetPanel');
+    const r = panel.getBoundingClientRect();
+    let dy = 0;
+    if (optLastClientY < r.top + REORDER_EDGE_ZONE) {
+      const t = (r.top + REORDER_EDGE_ZONE - optLastClientY) / REORDER_EDGE_ZONE;
+      dy = -REORDER_MAX_SCROLL_SPEED * Math.min(1, t);
+    } else if (optLastClientY > r.bottom - REORDER_EDGE_ZONE) {
+      const t = (optLastClientY - (r.bottom - REORDER_EDGE_ZONE)) / REORDER_EDGE_ZONE;
+      dy = REORDER_MAX_SCROLL_SPEED * Math.min(1, t);
+    }
+    if (dy !== 0) {
+      panel.scrollTop += dy;
+      reorderByClonePosition();
+    }
+    optAutoScrollRAF = requestAnimationFrame(step);
+  };
+  optAutoScrollRAF = requestAnimationFrame(step);
 }
 
 function onOptPointerUp() {
@@ -2502,14 +2605,20 @@ function onOptPointerUp() {
   document.removeEventListener('pointermove', onOptPointerMove);
   document.removeEventListener('pointerup',   onOptPointerUp);
   document.removeEventListener('pointercancel', onOptPointerUp);
-  if (optDragEl && optDragActive) {
-    optDragEl.classList.remove('opt-dragging');
+
+  if (optPhase === 'dragging') {
+    if (optAutoScrollRAF) { cancelAnimationFrame(optAutoScrollRAF); optAutoScrollRAF = null; }
+    if (optDragClone) { optDragClone.remove(); optDragClone = null; }
+    if (optDragEl) {
+      optDragEl.classList.remove('opt-dragging-placeholder');
+    }
     commitSubjectOrder();
     optJustDragged = true;
     setTimeout(() => { optJustDragged = false; }, 300);
   }
-  optDragEl     = null;
-  optDragActive = false;
+
+  optPhase  = 'idle';
+  optDragEl = null;
 }
 
 function commitSubjectOrder() {
