@@ -2,14 +2,14 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="apple-touch-icon" href="icon.png">
 <title>Traqr</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; touch-action: manipulation; }
 
   :root {
     --green:       #13A18C;
@@ -277,7 +277,9 @@
   .breakdown-item {
     display: flex; align-items: baseline; justify-content: space-between;
     padding: 10px 16px; border-bottom: 1px solid var(--border); font-size: 13px;
+    cursor: pointer;
   }
+  .breakdown-item:active { background: var(--green-pale); }
   .breakdown-item:last-child { border-bottom: none; }
   .breakdown-item-left { display: flex; flex-direction: column; gap: 2px; }
   .breakdown-item-date { color: var(--text2); font-size: 11px; }
@@ -486,12 +488,21 @@
     background: var(--white); border-top: 1px solid var(--border); z-index: 521;
   }
   .numpad-display-row {
-    display: flex; align-items: center; justify-content: flex-end; gap: 16px;
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
     padding: 14px 20px; border-bottom: 1px solid var(--border);
   }
+  .numpad-display-right { display: flex; align-items: center; gap: 14px; }
   .numpad-display-amount { font-size: 34px; font-weight: bold; color: var(--text); }
   .numpad-back-btn {
     background: none; border: none; font-size: 26px; color: var(--text2); cursor: pointer; padding: 4px 8px;
+  }
+  .numpad-clear-btn {
+    background: none; border: none; font-size: 15px; font-weight: bold; color: var(--expense);
+    cursor: pointer; padding: 4px 8px; font-family: "メイリオ", Meiryo, sans-serif;
+  }
+  .numpad-calc-btn {
+    background: none; border: none; color: var(--green); cursor: pointer;
+    padding: 6px; display: flex; align-items: center;
   }
   .numpad-grid { display: grid; grid-template-columns: repeat(3, 1fr); }
   .numpad-key {
@@ -504,6 +515,41 @@
   .numpad-key:active { background: var(--bg); }
   .numpad-key-confirm { background: var(--green); color: white; font-size: 17px; }
   .numpad-key-confirm:active { background: var(--green-mid); }
+
+  /* Calculator Screen */
+  .calc-screen {
+    position: fixed; inset: 0; background: var(--bg); z-index: 700;
+    display: none; flex-direction: column;
+  }
+  .calc-screen.open { display: flex; }
+  .calc-display-row {
+    flex-shrink: 0; padding: 26px 20px; text-align: right;
+    background: var(--white); border-bottom: 1px solid var(--border);
+  }
+  .calc-display {
+    font-size: 38px; font-weight: bold; color: var(--text);
+    word-break: break-all; display: block;
+  }
+  .calc-grid { display: grid; grid-template-columns: repeat(4, 1fr); flex: 1; }
+  .calc-key {
+    border: none; background: var(--white); cursor: pointer;
+    font-size: 21px; font-weight: bold; color: var(--text);
+    font-family: "メイリオ", Meiryo, sans-serif;
+    border-right: 1px solid var(--border); border-bottom: 1px solid var(--border);
+  }
+  .calc-key:nth-child(4n) { border-right: none; }
+  .calc-key:active { background: var(--bg); }
+  .calc-key-op { color: var(--green); }
+  .calc-key-equal { background: var(--green); color: white; border-right: none; }
+  .calc-key-equal:active { background: var(--green-mid); }
+
+  /* Input row drag reorder */
+  .input-row-left { display: flex; align-items: center; gap: 10px; }
+  .row-drag-handle {
+    color: var(--border); font-size: 18px; line-height: 1; padding: 4px;
+    cursor: grab; touch-action: none; user-select: none;
+  }
+  .input-row.dragging { opacity: 0.5; background: var(--green-pale); }
   .form-input, .form-select {
     width: 100%;
     padding: 13px 14px;
@@ -1011,7 +1057,7 @@
   /* ---- 印刷スタイル ---- */
   @media print {
     header, nav, #plMenu, .pl-nav-bar, #plNavBar,
-    .edit-screen, .cal-modal, .numpad-panel, .numpad-overlay,
+    .edit-screen, .calc-screen, .cal-modal, .numpad-panel, .numpad-overlay,
     .sel-sheet-panel, .sel-sheet-overlay, .toast,
     .breakdown-overlay, .breakdown-panel,
     .tab:not(#tab-home) { display: none !important; }
@@ -1088,40 +1134,55 @@
     </div>
   </div>
 
-  <!-- 日付 -->
-  <div class="input-row">
-    <span class="input-row-label">日付</span>
-    <div class="input-date-nav">
-      <button class="input-date-arrow" onclick="changeInputDate(-1)">‹</button>
-      <button class="input-date-val" id="inputDateLabel" onclick="openInputCalendar()">--</button>
-      <button class="input-date-arrow" onclick="changeInputDate(1)">›</button>
-    </div>
-  </div>
-
-  <!-- 金額 -->
-  <div class="input-row" onclick="openNumpad()">
-    <span class="input-row-label">金額</span>
-    <span class="input-amount-display" id="inputAmountDisplay">¥0</span>
-  </div>
-
-  <!-- 受け取り方法 / 支払方法 -->
-  <div class="input-row" onclick="openSelSheet('payment')">
-    <span class="input-row-label" id="paymentMethodLabel">受け取り方法</span>
-    <div class="input-row-value-nav">
-      <span class="input-row-value" id="inputPaymentDisplay">現金</span>
-      <span class="input-row-chevron">›</span>
-    </div>
-  </div>
-
-  <!-- 科目を選択（備考サブ表示付き） -->
-  <div class="input-row" onclick="openSelSheet('subject')">
-    <span class="input-row-label">科目を選択</span>
-    <div class="input-row-value-nav">
-      <div class="input-subject-right">
-        <span class="input-row-value" id="inputSubjectDisplay">仕入高</span>
-        <span class="input-subject-memo" id="inputMemoSubDisplay"></span>
+  <!-- 並び替え可能な入力項目 -->
+  <div id="inputRowsContainer">
+    <!-- 日付 -->
+    <div class="input-row" data-key="date">
+      <div class="input-row-left">
+        <span class="row-drag-handle" onpointerdown="onRowDragStart(event)" onclick="event.stopPropagation()">⠿</span>
+        <span class="input-row-label">日付</span>
       </div>
-      <span class="input-row-chevron">›</span>
+      <div class="input-date-nav">
+        <button class="input-date-arrow" onclick="changeInputDate(-1)">‹</button>
+        <button class="input-date-val" id="inputDateLabel" onclick="openInputCalendar()">--</button>
+        <button class="input-date-arrow" onclick="changeInputDate(1)">›</button>
+      </div>
+    </div>
+
+    <!-- 金額 -->
+    <div class="input-row" data-key="amount" onclick="openNumpad()">
+      <div class="input-row-left">
+        <span class="row-drag-handle" onpointerdown="onRowDragStart(event)" onclick="event.stopPropagation()">⠿</span>
+        <span class="input-row-label">金額</span>
+      </div>
+      <span class="input-amount-display" id="inputAmountDisplay">¥0</span>
+    </div>
+
+    <!-- 受け取り方法 / 支払方法 -->
+    <div class="input-row" data-key="payment" onclick="openSelSheet('payment')">
+      <div class="input-row-left">
+        <span class="row-drag-handle" onpointerdown="onRowDragStart(event)" onclick="event.stopPropagation()">⠿</span>
+        <span class="input-row-label" id="paymentMethodLabel">受け取り方法</span>
+      </div>
+      <div class="input-row-value-nav">
+        <span class="input-row-value" id="inputPaymentDisplay">現金</span>
+        <span class="input-row-chevron">›</span>
+      </div>
+    </div>
+
+    <!-- 科目を選択（備考サブ表示付き） -->
+    <div class="input-row" data-key="subject" onclick="openSelSheet('subject')">
+      <div class="input-row-left">
+        <span class="row-drag-handle" onpointerdown="onRowDragStart(event)" onclick="event.stopPropagation()">⠿</span>
+        <span class="input-row-label">科目を選択</span>
+      </div>
+      <div class="input-row-value-nav">
+        <div class="input-subject-right">
+          <span class="input-row-value" id="inputSubjectDisplay">仕入高</span>
+          <span class="input-subject-memo" id="inputMemoSubDisplay"></span>
+        </div>
+        <span class="input-row-chevron">›</span>
+      </div>
     </div>
   </div>
 
@@ -1322,8 +1383,20 @@
 <div id="numpadOverlay" class="numpad-overlay" style="display:none" onclick="closeNumpad()"></div>
 <div id="numpadPanel" class="numpad-panel" style="display:none">
   <div class="numpad-display-row">
-    <button class="numpad-back-btn" onclick="numpadBack()">⌫</button>
-    <span class="numpad-display-amount" id="numpadDisplay">0</span>
+    <button class="numpad-calc-btn" onclick="openCalcScreen()" title="電卓">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="4" y="2" width="16" height="20" rx="2"/>
+        <line x1="8" y1="6" x2="16" y2="6"/>
+        <line x1="8" y1="11" x2="8" y2="11.01"/><line x1="12" y1="11" x2="12" y2="11.01"/><line x1="16" y1="11" x2="16" y2="11.01"/>
+        <line x1="8" y1="15" x2="8" y2="15.01"/><line x1="12" y1="15" x2="12" y2="15.01"/><line x1="16" y1="15" x2="16" y2="15.01"/>
+        <line x1="8" y1="19" x2="8" y2="19.01"/><line x1="12" y1="19" x2="12" y2="19.01"/><line x1="16" y1="19" x2="16" y2="19.01"/>
+      </svg>
+    </button>
+    <div class="numpad-display-right">
+      <button class="numpad-clear-btn" onclick="numpadClear()">C</button>
+      <button class="numpad-back-btn" onclick="numpadBack()">⌫</button>
+      <span class="numpad-display-amount" id="numpadDisplay">0</span>
+    </div>
   </div>
   <div class="numpad-grid">
     <button class="numpad-key" onclick="numpadKey('7')">7</button>
@@ -1338,6 +1411,43 @@
     <button class="numpad-key" onclick="numpadKey('00')">00</button>
     <button class="numpad-key" onclick="numpadKey('0')">0</button>
     <button class="numpad-key numpad-key-confirm" onclick="numpadConfirm()">決定</button>
+  </div>
+</div>
+
+<!-- Calculator Screen -->
+<div id="calcScreen" class="calc-screen">
+  <div class="edit-screen-header">
+    <button class="edit-back-btn" onclick="closeCalcScreen()">‹ 戻る</button>
+    <span class="edit-screen-title">電卓</span>
+    <button class="edit-save-btn" onclick="calcApply()">決定</button>
+  </div>
+  <div class="calc-display-row">
+    <span class="calc-display" id="calcDisplay">0</span>
+  </div>
+  <div class="calc-grid">
+    <button class="calc-key calc-key-op" onclick="calcClear()">C</button>
+    <button class="calc-key calc-key-op" onclick="calcToggleSign()">±</button>
+    <button class="calc-key calc-key-op" onclick="calcBack()">⌫</button>
+    <button class="calc-key calc-key-op" onclick="calcOperator('÷')">÷</button>
+
+    <button class="calc-key" onclick="calcDigit('7')">7</button>
+    <button class="calc-key" onclick="calcDigit('8')">8</button>
+    <button class="calc-key" onclick="calcDigit('9')">9</button>
+    <button class="calc-key calc-key-op" onclick="calcOperator('×')">×</button>
+
+    <button class="calc-key" onclick="calcDigit('4')">4</button>
+    <button class="calc-key" onclick="calcDigit('5')">5</button>
+    <button class="calc-key" onclick="calcDigit('6')">6</button>
+    <button class="calc-key calc-key-op" onclick="calcOperator('−')">−</button>
+
+    <button class="calc-key" onclick="calcDigit('1')">1</button>
+    <button class="calc-key" onclick="calcDigit('2')">2</button>
+    <button class="calc-key" onclick="calcDigit('3')">3</button>
+    <button class="calc-key calc-key-op" onclick="calcOperator('+')">+</button>
+
+    <button class="calc-key" onclick="calcDigit('0')" style="grid-column:span 2">0</button>
+    <button class="calc-key" onclick="calcDigit('.')">.</button>
+    <button class="calc-key calc-key-equal" onclick="calcEquals()">=</button>
   </div>
 </div>
 
@@ -1744,7 +1854,7 @@ function showPLBreakdown(type, cat) {
   document.getElementById('breakdownTitle').textContent = cat;
   document.getElementById('breakdownList').innerHTML = data.length
     ? data.map(e => `
-        <div class="breakdown-item">
+        <div class="breakdown-item" onclick="closePLBreakdown();openEditScreen(${e.id})">
           <div class="breakdown-item-left">
             <span class="breakdown-item-date">${e.date}</span>
             ${e.memo ? `<span class="breakdown-item-memo">${e.memo}</span>` : ''}
@@ -1902,6 +2012,7 @@ function saveCalRange() {
 //  Input
 // ============================================================
 function initInput() {
+  applyInputRowOrder();
   renderInputDate();
   renderInputRow();
 }
@@ -2239,6 +2350,150 @@ function numpadKey(k) {
 function numpadBack() {
   numpadStr = numpadStr.slice(0, -1);
   document.getElementById('numpadDisplay').textContent = numpadStr ? fmt(parseInt(numpadStr)) : '0';
+}
+
+function numpadClear() {
+  numpadStr = '';
+  document.getElementById('numpadDisplay').textContent = '0';
+}
+
+// ============================================================
+//  電卓 (Calculator)
+// ============================================================
+let calcCurrent = '';
+let calcAcc     = 0;
+let calcOp      = null;
+
+function openCalcScreen() {
+  calcCurrent = numpadStr || '';
+  calcAcc = 0;
+  calcOp  = null;
+  document.getElementById('calcDisplay').textContent = calcCurrent || '0';
+  document.getElementById('calcScreen').classList.add('open');
+}
+
+function closeCalcScreen() {
+  document.getElementById('calcScreen').classList.remove('open');
+}
+
+function calcApplyOp(a, op, b) {
+  if (op === '+') return a + b;
+  if (op === '−') return a - b;
+  if (op === '×') return a * b;
+  if (op === '÷') return b === 0 ? 0 : a / b;
+  return b;
+}
+
+function calcRound(n) {
+  return Math.round(n * 100) / 100;
+}
+
+function calcDigit(d) {
+  if (d === '.' && calcCurrent.includes('.')) return;
+  if (calcCurrent === '0' && d !== '.') calcCurrent = '';
+  calcCurrent += d;
+  document.getElementById('calcDisplay').textContent = calcCurrent;
+}
+
+function calcOperator(op) {
+  const cur = parseFloat(calcCurrent || calcAcc || 0);
+  calcAcc = (calcOp && calcCurrent !== '') ? calcApplyOp(calcAcc, calcOp, cur) : cur;
+  calcOp = op;
+  calcCurrent = '';
+  document.getElementById('calcDisplay').textContent = fmt(calcRound(calcAcc));
+}
+
+function calcEquals() {
+  if (!calcOp) return;
+  const cur = parseFloat(calcCurrent || 0);
+  calcAcc = calcApplyOp(calcAcc, calcOp, cur);
+  calcOp = null;
+  calcCurrent = String(calcRound(calcAcc));
+  document.getElementById('calcDisplay').textContent = fmt(calcRound(calcAcc));
+}
+
+function calcClear() {
+  calcCurrent = '';
+  calcAcc = 0;
+  calcOp = null;
+  document.getElementById('calcDisplay').textContent = '0';
+}
+
+function calcBack() {
+  if (calcCurrent) {
+    calcCurrent = calcCurrent.slice(0, -1);
+    document.getElementById('calcDisplay').textContent = calcCurrent || '0';
+  }
+}
+
+function calcToggleSign() {
+  if (calcCurrent) {
+    calcCurrent = calcCurrent.startsWith('-') ? calcCurrent.slice(1) : '-' + calcCurrent;
+  } else {
+    calcAcc = -calcAcc;
+    calcCurrent = String(calcRound(calcAcc));
+  }
+  document.getElementById('calcDisplay').textContent = calcCurrent;
+}
+
+function calcApply() {
+  const raw = calcCurrent !== '' ? parseFloat(calcCurrent) : calcAcc;
+  const val = Math.round(Math.abs(raw || 0));
+  numpadStr = val > 0 ? String(val) : '';
+  document.getElementById('numpadDisplay').textContent = numpadStr ? fmt(parseInt(numpadStr)) : '0';
+  closeCalcScreen();
+}
+
+// ============================================================
+//  入力項目の並び替え（ドラッグ）
+// ============================================================
+const KEY_INPUT_ROW_ORDER = 'traqr_input_row_order';
+let dragRowEl = null;
+
+function onRowDragStart(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  dragRowEl = e.currentTarget.closest('.input-row');
+  dragRowEl.classList.add('dragging');
+  document.addEventListener('pointermove', onRowDragMove);
+  document.addEventListener('pointerup', onRowDragEnd);
+}
+
+function onRowDragMove(e) {
+  if (!dragRowEl) return;
+  const container = document.getElementById('inputRowsContainer');
+  const rows = [...container.querySelectorAll('.input-row')];
+  const after = rows.find(r => {
+    if (r === dragRowEl) return false;
+    const rect = r.getBoundingClientRect();
+    return e.clientY < rect.top + rect.height / 2;
+  });
+  if (after) container.insertBefore(dragRowEl, after);
+  else container.appendChild(dragRowEl);
+}
+
+function onRowDragEnd() {
+  if (!dragRowEl) return;
+  dragRowEl.classList.remove('dragging');
+  dragRowEl = null;
+  document.removeEventListener('pointermove', onRowDragMove);
+  document.removeEventListener('pointerup', onRowDragEnd);
+  saveInputRowOrder();
+}
+
+function saveInputRowOrder() {
+  const order = [...document.querySelectorAll('#inputRowsContainer .input-row')].map(r => r.dataset.key);
+  localStorage.setItem(KEY_INPUT_ROW_ORDER, JSON.stringify(order));
+}
+
+function applyInputRowOrder() {
+  const saved = JSON.parse(localStorage.getItem(KEY_INPUT_ROW_ORDER) || 'null');
+  if (!saved) return;
+  const container = document.getElementById('inputRowsContainer');
+  saved.forEach(key => {
+    const el = container.querySelector(`.input-row[data-key="${key}"]`);
+    if (el) container.appendChild(el);
+  });
 }
 
 function numpadConfirm() {
@@ -2770,6 +3025,7 @@ function saveEntryEdit() {
   closeEditScreen();
   buildFilterYearOptions();
   renderHistory();
+  renderPL();
   showToast('更新しました');
 }
 
@@ -2853,6 +3109,7 @@ function deleteEntryConfirmed() {
   closeEditScreen();
   buildFilterYearOptions();
   renderHistory();
+  renderPL();
   showToast('削除しました');
 }
 
