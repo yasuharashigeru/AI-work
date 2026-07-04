@@ -501,10 +501,6 @@
   .numpad-back-btn {
     background: none; border: none; font-size: 26px; color: var(--text2); cursor: pointer; padding: 4px 8px;
   }
-  .numpad-clear-btn {
-    background: none; border: none; font-size: 15px; font-weight: bold; color: var(--expense);
-    cursor: pointer; padding: 4px 8px; font-family: "メイリオ", Meiryo, sans-serif;
-  }
   .numpad-calc-btn {
     background: none; border: none; color: var(--green); cursor: pointer;
     padding: 6px; display: flex; align-items: center;
@@ -518,8 +514,12 @@
   }
   .numpad-key:nth-child(3n) { border-right: none; }
   .numpad-key:active { background: var(--bg); }
-  .numpad-key-confirm { background: var(--green); color: white; font-size: 17px; }
-  .numpad-key-confirm:active { background: var(--green-mid); }
+  .numpad-confirm-row {
+    width: 100%; background: var(--green); color: white; border: none;
+    padding: 17px; font-size: 16px; font-weight: bold; letter-spacing: 0.08em;
+    font-family: "メイリオ", Meiryo, sans-serif; cursor: pointer; min-height: 54px;
+  }
+  .numpad-confirm-row:active { background: var(--green-mid); }
 
   /* Calculator Screen */
   .calc-screen {
@@ -1400,7 +1400,6 @@
       </svg>
     </button>
     <div class="numpad-display-right">
-      <button class="numpad-clear-btn" onclick="numpadClear()">C</button>
       <button class="numpad-back-btn" onclick="numpadBack()">⌫</button>
       <span class="numpad-display-amount" id="numpadDisplay">0</span>
     </div>
@@ -1417,8 +1416,9 @@
     <button class="numpad-key" onclick="numpadKey('3')">3</button>
     <button class="numpad-key" onclick="numpadKey('00')">00</button>
     <button class="numpad-key" onclick="numpadKey('0')">0</button>
-    <button class="numpad-key numpad-key-confirm" onclick="numpadConfirm()">決定</button>
+    <button class="numpad-key" onclick="numpadClear()">C</button>
   </div>
+  <button class="numpad-confirm-row" onclick="numpadConfirm()">決定</button>
 </div>
 
 <!-- Calculator Screen -->
