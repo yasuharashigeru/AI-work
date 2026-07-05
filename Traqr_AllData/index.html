@@ -3137,33 +3137,94 @@ function handleCSVImportFile(input) {
   reader.readAsText(file, 'UTF-8');
 }
 
+// 引用符（"..."）で囲まれたフィールドやカンマ区切りの金額にも対応したCSV1行パーサー
+function parseCSVLine(line) {
+  const result = [];
+  let cur = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (line[i + 1] === '"') { cur += '"'; i++; }
+        else { inQuotes = false; }
+      } else {
+        cur += c;
+      }
+    } else if (c === '"') {
+      inQuotes = true;
+    } else if (c === ',') {
+      result.push(cur);
+      cur = '';
+    } else {
+      cur += c;
+    }
+  }
+  result.push(cur);
+  return result.map(s => s.trim());
+}
+
+// スプレッドシートアプリで開き直すと日付の書式が変わることがあるため、主要な表記ゆれを吸収する
+function normalizeImportDate(str) {
+  if (!str) return null;
+  str = str.trim();
+  let m = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+  m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) return `${m[3]}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`;
+  const d = new Date(str);
+  if (!isNaN(d.getTime())) {
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  }
+  return null;
+}
+
+function normalizeImportAmount(str) {
+  if (!str) return 0;
+  const cleaned = String(str).replace(/[,¥\s]/g, '');
+  const n = parseInt(cleaned, 10);
+  return isNaN(n) ? 0 : n;
+}
+
 function processImportedCSV(text) {
   const clean = text.replace(/^﻿/, '');
   const lines = clean.split(/\r\n|\n/).filter(l => l.trim() !== '');
   if (lines.length < 1) { showToast('CSVの読み込みに失敗しました'); return; }
   lines.shift(); // ヘッダー行（日付,種別,科目,支払方法,備考,金額）を捨てる
 
-  if (!confirm(`現在のデータを、このCSV（${lines.length}件）の内容で上書きします。\nよろしいですか？`)) return;
-
   let nextId = Date.now();
-  const expenseSet = new Set(getExpenseSubs());
-  const incomeSet  = new Set(getIncomeSubs());
-  const paymentSet = new Set(getPaymentMethods());
+  const rows = [];
+  let skipped = 0;
 
-  const rows = lines.map(line => {
-    const [date, typeLabel, category, payment, memo, amount] = line.split(',');
-    const type = typeLabel === '収入' ? 'income' : 'expense';
-    if (type === 'income') incomeSet.add(category); else expenseSet.add(category);
-    if (payment) paymentSet.add(payment);
-    return {
+  for (const line of lines) {
+    const [dateRaw, typeLabel, category, payment, memo, amountRaw] = parseCSVLine(line);
+    const date = normalizeImportDate(dateRaw);
+    if (!date || !category) { skipped++; continue; }
+    rows.push({
       id: nextId++,
       date,
-      type,
+      type: typeLabel === '収入' ? 'income' : 'expense',
       category,
       payment: payment || '',
       memo: memo || '',
-      amount: parseInt(amount) || 0
-    };
+      amount: normalizeImportAmount(amountRaw)
+    });
+  }
+
+  if (rows.length === 0) { showToast('読み込める行がありませんでした（日付や科目の形式をご確認ください）'); return; }
+
+  const confirmMsg = skipped > 0
+    ? `現在のデータを、このCSV（${rows.length}件、日付不正等で${skipped}件スキップ）の内容で上書きします。\nよろしいですか？`
+    : `現在のデータを、このCSV（${rows.length}件）の内容で上書きします。\nよろしいですか？`;
+  if (!confirm(confirmMsg)) return;
+
+  const expenseSet = new Set(getExpenseSubs());
+  const incomeSet  = new Set(getIncomeSubs());
+  const paymentSet = new Set(getPaymentMethods());
+  rows.forEach(r => {
+    if (r.type === 'income') incomeSet.add(r.category); else expenseSet.add(r.category);
+    if (r.payment) paymentSet.add(r.payment);
   });
 
   saveData(rows);
@@ -3173,7 +3234,7 @@ function processImportedCSV(text) {
   buildFilterYearOptions();
   renderHistory();
   renderPL();
-  showToast(`${rows.length}件を読み込みました`);
+  showToast(`${rows.length}件を読み込みました${skipped > 0 ? `（${skipped}件スキップ）` : ''}`);
 }
 
 function exportPDF() {
