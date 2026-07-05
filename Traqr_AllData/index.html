@@ -1114,6 +1114,8 @@
   <div class="header-side">
     <button class="header-export-btn" id="headerPDFBtn" onclick="exportPDF()">PDF</button>
     <button class="header-export-btn" id="headerCSVBtn" onclick="exportCSV()">CSV</button>
+    <button class="header-export-btn" id="headerCSVImportBtn" onclick="importCSV()" style="display:none">読込</button>
+    <input type="file" id="csvImportInput" accept=".csv,text/csv" style="display:none" onchange="handleCSVImportFile(this)">
   </div>
   <span class="header-title" id="headerTitle">損益表</span>
   <div class="header-side" style="justify-content:flex-end">
@@ -1586,7 +1588,8 @@ function showTab(name) {
   document.getElementById('headerTitle').textContent = titles[name] || '';
   document.getElementById('headerPLBtn').style.visibility = name === 'home' ? 'visible' : 'hidden';
   document.getElementById('headerPDFBtn').style.display   = name === 'home'    ? 'block' : 'none';
-  document.getElementById('headerCSVBtn').style.display   = name === 'history' ? 'block' : 'none';
+  document.getElementById('headerCSVBtn').style.display       = name === 'history' ? 'block' : 'none';
+  document.getElementById('headerCSVImportBtn').style.display = name === 'history' ? 'block' : 'none';
   document.getElementById('plMenu').style.display = 'none';
 
   if (name === 'home')    renderPL();
@@ -3117,6 +3120,60 @@ function exportCSV() {
   a.download = `収支_${ymLabel}.csv`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+function importCSV() {
+  document.getElementById('csvImportInput').click();
+}
+
+function handleCSVImportFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    processImportedCSV(e.target.result);
+    input.value = ''; // 同じファイルを続けて選び直せるようにする
+  };
+  reader.readAsText(file, 'UTF-8');
+}
+
+function processImportedCSV(text) {
+  const clean = text.replace(/^﻿/, '');
+  const lines = clean.split(/\r\n|\n/).filter(l => l.trim() !== '');
+  if (lines.length < 1) { showToast('CSVの読み込みに失敗しました'); return; }
+  lines.shift(); // ヘッダー行（日付,種別,科目,支払方法,備考,金額）を捨てる
+
+  if (!confirm(`現在のデータを、このCSV（${lines.length}件）の内容で上書きします。\nよろしいですか？`)) return;
+
+  let nextId = Date.now();
+  const expenseSet = new Set(getExpenseSubs());
+  const incomeSet  = new Set(getIncomeSubs());
+  const paymentSet = new Set(getPaymentMethods());
+
+  const rows = lines.map(line => {
+    const [date, typeLabel, category, payment, memo, amount] = line.split(',');
+    const type = typeLabel === '収入' ? 'income' : 'expense';
+    if (type === 'income') incomeSet.add(category); else expenseSet.add(category);
+    if (payment) paymentSet.add(payment);
+    return {
+      id: nextId++,
+      date,
+      type,
+      category,
+      payment: payment || '',
+      memo: memo || '',
+      amount: parseInt(amount) || 0
+    };
+  });
+
+  saveData(rows);
+  saveExpenseSubs([...expenseSet]);
+  saveIncomeSubs([...incomeSet]);
+  savePaymentMethods([...paymentSet]);
+  buildFilterYearOptions();
+  renderHistory();
+  renderPL();
+  showToast(`${rows.length}件を読み込みました`);
 }
 
 function exportPDF() {
