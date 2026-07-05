@@ -3132,6 +3132,7 @@ const SUPABASE_URL         = 'https://wmhjuhkkcrgedfrpszao.supabase.co';
 const SUPABASE_ANON_KEY    = 'sb_publishable_1ULLLk4ss03dQUd_X9QJvw_0kaUynns';
 const CLOUD_BACKUP_BUCKET  = 'backups';
 const CLOUD_BACKUP_PATH    = 'traqr_alldata_backup.csv';
+const CLOUD_SETTINGS_PATH  = 'traqr_alldata_settings.json';
 
 const cloudClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -3216,14 +3217,31 @@ function parseFullBackupCSV(text) {
   });
 }
 
+function buildBackupSettingsJSON() {
+  return JSON.stringify({
+    expenseSubs:     getExpenseSubs(),
+    incomeSubs:      getIncomeSubs(),
+    paymentMethods:  getPaymentMethods(),
+    memoSubs:        getMemoSubs()
+  });
+}
+
 async function cloudBackup() {
   document.getElementById('plMenu').style.display = 'none';
-  const csv  = buildFullBackupCSV();
-  const blob = new Blob([csv], { type: 'text/csv' });
-  const { error } = await cloudClient.storage
+
+  const csv      = buildFullBackupCSV();
+  const csvBlob  = new Blob([csv], { type: 'text/csv' });
+  const { error: csvError } = await cloudClient.storage
     .from(CLOUD_BACKUP_BUCKET)
-    .upload(CLOUD_BACKUP_PATH, blob, { upsert: true, contentType: 'text/csv' });
-  if (error) { showToast('バックアップに失敗しました：' + error.message); return; }
+    .upload(CLOUD_BACKUP_PATH, csvBlob, { upsert: true, contentType: 'text/csv' });
+  if (csvError) { showToast('バックアップに失敗しました：' + csvError.message); return; }
+
+  const settingsBlob = new Blob([buildBackupSettingsJSON()], { type: 'application/json' });
+  const { error: settingsError } = await cloudClient.storage
+    .from(CLOUD_BACKUP_BUCKET)
+    .upload(CLOUD_SETTINGS_PATH, settingsBlob, { upsert: true, contentType: 'application/json' });
+  if (settingsError) { showToast('バックアップに失敗しました（科目等）：' + settingsError.message); return; }
+
   showToast('バックアップを保存しました');
 }
 
@@ -3239,7 +3257,23 @@ async function cloudRestore() {
   const text     = await data.text();
   const restored = parseFullBackupCSV(text);
   saveData(restored);
+
+  const { data: settingsData } = await cloudClient.storage
+    .from(CLOUD_BACKUP_BUCKET)
+    .download(CLOUD_SETTINGS_PATH);
+  if (settingsData) {
+    try {
+      const settings = JSON.parse(await settingsData.text());
+      if (settings.expenseSubs)    saveExpenseSubs(settings.expenseSubs);
+      if (settings.incomeSubs)     saveIncomeSubs(settings.incomeSubs);
+      if (settings.paymentMethods) savePaymentMethods(settings.paymentMethods);
+      if (settings.memoSubs)       saveMemoSubs(settings.memoSubs);
+    } catch (e) { /* 古いバックアップ（科目等の情報を含まない）なら黙って取引データのみ復元 */ }
+  }
+
   buildFilterYearOptions();
+  refreshCatSelect();
+  renderInputRow();
   renderHistory();
   renderPL();
   showToast(`復元しました（${restored.length}件）`);
