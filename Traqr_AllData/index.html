@@ -9,6 +9,7 @@
 <title>Traqr</title>
 <!-- build: 2026-07-04-b -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; touch-action: manipulation; }
 
@@ -1129,7 +1130,27 @@
   <button id="pmBtn-weekly"  onclick="setPLPeriod('weekly')">週別</button>
   <button id="pmBtn-daily"   onclick="setPLPeriod('daily')">日別</button>
   <div class="menu-divider"></div>
+  <button id="pmBtn-cloud-login"   onclick="openCloudLogin()">クラウドにログイン</button>
+  <button id="pmBtn-cloud-backup"  onclick="cloudBackup()"  style="display:none">バックアップを保存</button>
+  <button id="pmBtn-cloud-restore" onclick="cloudRestore()" style="display:none">バックアップから復元</button>
+  <button id="pmBtn-cloud-logout"  onclick="cloudSignOut()" style="display:none">クラウドからログアウト</button>
+  <div class="menu-divider"></div>
   <button class="danger-btn" onclick="resetApp()">データをリセット</button>
+</div>
+
+<!-- クラウドログイン -->
+<div id="cloudLoginOverlay" class="sel-sheet-overlay" style="display:none" onclick="closeCloudLogin()"></div>
+<div id="cloudLoginPanel" class="sel-sheet-panel" style="display:none">
+  <div class="sel-sheet-title-bar"><span>クラウドバックアップにログイン</span></div>
+  <div class="memo-edit-body">
+    <input class="memo-edit-input" id="cloudEmailInput" type="email" placeholder="メールアドレス" autocomplete="username">
+    <input class="memo-edit-input" id="cloudPasswordInput" type="password" placeholder="パスワード" autocomplete="current-password">
+    <div id="cloudLoginError" style="color:var(--expense);font-size:12px;display:none"></div>
+    <div class="memo-edit-btns">
+      <button class="memo-edit-skip" onclick="closeCloudLogin()">キャンセル</button>
+      <button class="memo-edit-confirm" onclick="cloudSignIn()">ログイン</button>
+    </div>
+  </div>
 </div>
 
 <!-- ========== 損益表 TAB ========== -->
@@ -1607,6 +1628,7 @@ function showTab(name) {
 function togglePLMenu() {
   const m = document.getElementById('plMenu');
   m.style.display = m.style.display === 'none' ? 'block' : 'none';
+  updateCloudMenuUI();
 }
 
 function resetApp() {
@@ -3132,6 +3154,126 @@ function exportPDF() {
 }
 
 // ============================================================
+//  クラウドバックアップ (Supabase)
+// ============================================================
+const SUPABASE_URL         = 'https://wmhjuhkkcrgedfrpszao.supabase.co';
+const SUPABASE_ANON_KEY    = 'sb_publishable_1ULLLk4ss03dQUd_X9QJvw_0kaUynns';
+const CLOUD_BACKUP_BUCKET  = 'backups';
+const CLOUD_BACKUP_PATH    = 'traqr_alldata_backup.csv';
+
+const cloudClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+function openCloudLogin() {
+  document.getElementById('plMenu').style.display = 'none';
+  document.getElementById('cloudLoginError').style.display = 'none';
+  document.getElementById('cloudEmailInput').value = '';
+  document.getElementById('cloudPasswordInput').value = '';
+  document.getElementById('cloudLoginOverlay').style.display = 'block';
+  document.getElementById('cloudLoginPanel').style.display   = 'block';
+}
+
+function closeCloudLogin() {
+  document.getElementById('cloudLoginOverlay').style.display = 'none';
+  document.getElementById('cloudLoginPanel').style.display   = 'none';
+}
+
+async function cloudSignIn() {
+  const email    = document.getElementById('cloudEmailInput').value.trim();
+  const password = document.getElementById('cloudPasswordInput').value;
+  const errEl    = document.getElementById('cloudLoginError');
+  if (!email || !password) return;
+
+  const { error } = await cloudClient.auth.signInWithPassword({ email, password });
+  if (error) {
+    errEl.textContent = 'ログインに失敗しました：' + error.message;
+    errEl.style.display = 'block';
+    return;
+  }
+  closeCloudLogin();
+  await updateCloudMenuUI();
+  showToast('ログインしました');
+}
+
+async function cloudSignOut() {
+  document.getElementById('plMenu').style.display = 'none';
+  await cloudClient.auth.signOut();
+  await updateCloudMenuUI();
+  showToast('ログアウトしました');
+}
+
+async function updateCloudMenuUI() {
+  const { data: { session } } = await cloudClient.auth.getSession();
+  const loggedIn = !!session;
+  document.getElementById('pmBtn-cloud-login').style.display   = loggedIn ? 'none' : '';
+  document.getElementById('pmBtn-cloud-backup').style.display  = loggedIn ? '' : 'none';
+  document.getElementById('pmBtn-cloud-restore').style.display = loggedIn ? '' : 'none';
+  document.getElementById('pmBtn-cloud-logout').style.display  = loggedIn ? '' : 'none';
+}
+
+function buildFullBackupCSV() {
+  const data = loadData().slice().sort((a, b) => a.date.localeCompare(b.date));
+  const header = 'id,日付,種別,科目,支払方法,備考,金額';
+  const rows = data.map(e => [
+    e.id,
+    e.date,
+    e.type === 'income' ? '収入' : '支出',
+    e.category,
+    e.payment || '',
+    (e.memo || '').replace(/,/g, '、'),
+    e.amount
+  ].join(','));
+  return '﻿' + [header, ...rows].join('\r\n');
+}
+
+function parseFullBackupCSV(text) {
+  const clean = text.replace(/^﻿/, '');
+  const lines = clean.split(/\r\n|\n/).filter(l => l.trim() !== '');
+  if (lines.length < 1) return [];
+  lines.shift(); // ヘッダー行を捨てる
+  return lines.map(line => {
+    const [id, date, typeLabel, category, payment, memo, amount] = line.split(',');
+    return {
+      id: parseInt(id) || (Date.now() + Math.floor(Math.random() * 1000)),
+      date,
+      type: typeLabel === '収入' ? 'income' : 'expense',
+      category,
+      payment: payment || '',
+      memo: memo || '',
+      amount: parseInt(amount) || 0
+    };
+  });
+}
+
+async function cloudBackup() {
+  document.getElementById('plMenu').style.display = 'none';
+  const csv  = buildFullBackupCSV();
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const { error } = await cloudClient.storage
+    .from(CLOUD_BACKUP_BUCKET)
+    .upload(CLOUD_BACKUP_PATH, blob, { upsert: true, contentType: 'text/csv' });
+  if (error) { showToast('バックアップに失敗しました：' + error.message); return; }
+  showToast('バックアップを保存しました');
+}
+
+async function cloudRestore() {
+  document.getElementById('plMenu').style.display = 'none';
+  if (!confirm('現在のデータを、クラウドのバックアップで上書きします。\nよろしいですか？')) return;
+
+  const { data, error } = await cloudClient.storage
+    .from(CLOUD_BACKUP_BUCKET)
+    .download(CLOUD_BACKUP_PATH);
+  if (error) { showToast('復元に失敗しました：' + error.message); return; }
+
+  const text     = await data.text();
+  const restored = parseFullBackupCSV(text);
+  saveData(restored);
+  buildFilterYearOptions();
+  renderHistory();
+  renderPL();
+  showToast(`復元しました（${restored.length}件）`);
+}
+
+// ============================================================
 //  Entry Edit Screen
 // ============================================================
 function openEditScreen(id) {
@@ -3343,6 +3485,7 @@ function init() {
   buildFilterYearOptions();
   initInput();
   showTab('home');
+  updateCloudMenuUI();
 }
 
 init();
