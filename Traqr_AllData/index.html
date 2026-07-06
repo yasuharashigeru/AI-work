@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="apple-touch-icon" href="icon.png">
 <title>Traqr</title>
-<!-- build: 2026-07-06-d -->
+<!-- build: 2026-07-06-e -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
@@ -56,10 +56,15 @@
   }
   .header-side { min-width: 40px; display: flex; justify-content: flex-end; }
   .header-title {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
     font-size: 17px;
     color: var(--text2);
     font-weight: bold;
     letter-spacing: 0.06em;
+    white-space: nowrap;
   }
   .header-menu-btn {
     background: none;
