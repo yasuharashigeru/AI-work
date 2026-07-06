@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="apple-touch-icon" href="icon.png">
 <title>Traqr</title>
-<!-- build: 2026-07-06-e -->
+<!-- build: 2026-07-06-f -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
@@ -89,6 +89,11 @@
     z-index: 200;
     overflow: hidden;
     min-width: 160px;
+  }
+  .csv-menu-dropdown {
+    right: auto;
+    left: 0;
+    border-radius: 0 12px 12px 0;
   }
   .pl-menu-dropdown button {
     display: block;
@@ -1118,8 +1123,7 @@
 <header>
   <div class="header-side">
     <button class="header-export-btn" id="headerPDFBtn" onclick="exportPDF()">PDF</button>
-    <button class="header-export-btn" id="headerCSVBtn" onclick="exportCSV()">CSV書き出し</button>
-    <button class="header-export-btn" id="headerCSVImportBtn" onclick="importCSV()" style="display:none">CSV読み込み</button>
+    <button class="header-export-btn" id="headerCSVBtn" onclick="toggleCSVMenu()">CSV</button>
     <input type="file" id="csvImportInput" accept=".csv,text/csv" style="display:none" onchange="handleCSVImportFile(this)">
   </div>
   <span class="header-title" id="headerTitle">損益表</span>
@@ -1127,6 +1131,12 @@
     <button class="header-menu-btn" id="headerPLBtn" onclick="togglePLMenu()">≡</button>
   </div>
 </header>
+
+<!-- CSV書き出し/読み込み Dropdown -->
+<div id="csvMenu" class="pl-menu-dropdown csv-menu-dropdown" style="display:none">
+  <button onclick="csvMenuAction('export')">書き出し</button>
+  <button onclick="csvMenuAction('import')">読み込み</button>
+</div>
 
 <!-- PL Period Dropdown -->
 <div id="plMenu" class="pl-menu-dropdown" style="display:none">
@@ -1593,9 +1603,9 @@ function showTab(name) {
   document.getElementById('headerTitle').textContent = titles[name] || '';
   document.getElementById('headerPLBtn').style.visibility = name === 'home' ? 'visible' : 'hidden';
   document.getElementById('headerPDFBtn').style.display   = name === 'home'    ? 'block' : 'none';
-  document.getElementById('headerCSVBtn').style.display       = name === 'history' ? 'block' : 'none';
-  document.getElementById('headerCSVImportBtn').style.display = name === 'history' ? 'block' : 'none';
+  document.getElementById('headerCSVBtn').style.display = name === 'history' ? 'block' : 'none';
   document.getElementById('plMenu').style.display = 'none';
+  document.getElementById('csvMenu').style.display = 'none';
 
   if (name === 'home')    renderPL();
   if (name === 'graph')   renderGraph();
@@ -3125,6 +3135,16 @@ function exportCSV() {
   a.download = `収支_${ymLabel}.csv`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+function toggleCSVMenu() {
+  const m = document.getElementById('csvMenu');
+  m.style.display = m.style.display === 'none' ? 'block' : 'none';
+}
+
+function csvMenuAction(action) {
+  document.getElementById('csvMenu').style.display = 'none';
+  if (action === 'export') exportCSV(); else importCSV();
 }
 
 function importCSV() {
