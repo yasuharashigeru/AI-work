@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="apple-touch-icon" href="icon.png">
 <title>Traqr</title>
-<!-- build: 2026-07-06-g -->
+<!-- build: 2026-07-06-h -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
@@ -3410,20 +3410,31 @@ function buildBackupSettingsJSON() {
   });
 }
 
+// ログイン中のユーザーごとにバックアップ先を分けるため、ユーザーIDのフォルダ配下に保存する
+async function getCloudUserPath(filename) {
+  const { data: { session } } = await cloudClient.auth.getSession();
+  if (!session) return null;
+  return `${session.user.id}/${filename}`;
+}
+
 async function cloudBackup() {
   document.getElementById('plMenu').style.display = 'none';
+
+  const backupPath   = await getCloudUserPath(CLOUD_BACKUP_PATH);
+  const settingsPath = await getCloudUserPath(CLOUD_SETTINGS_PATH);
+  if (!backupPath) { showToast('ログインしてください'); return; }
 
   const csv      = buildFullBackupCSV();
   const csvBlob  = new Blob([csv], { type: 'text/csv' });
   const { error: csvError } = await cloudClient.storage
     .from(CLOUD_BACKUP_BUCKET)
-    .upload(CLOUD_BACKUP_PATH, csvBlob, { upsert: true, contentType: 'text/csv' });
+    .upload(backupPath, csvBlob, { upsert: true, contentType: 'text/csv' });
   if (csvError) { showToast('バックアップに失敗しました：' + csvError.message); return; }
 
   const settingsBlob = new Blob([buildBackupSettingsJSON()], { type: 'application/json' });
   const { error: settingsError } = await cloudClient.storage
     .from(CLOUD_BACKUP_BUCKET)
-    .upload(CLOUD_SETTINGS_PATH, settingsBlob, { upsert: true, contentType: 'application/json' });
+    .upload(settingsPath, settingsBlob, { upsert: true, contentType: 'application/json' });
   if (settingsError) { showToast('バックアップに失敗しました（科目等）：' + settingsError.message); return; }
 
   showToast('バックアップを保存しました');
@@ -3433,9 +3444,13 @@ async function cloudRestore() {
   document.getElementById('plMenu').style.display = 'none';
   if (!confirm('現在のデータを、クラウドのバックアップで上書きします。\nよろしいですか？')) return;
 
+  const backupPath   = await getCloudUserPath(CLOUD_BACKUP_PATH);
+  const settingsPath = await getCloudUserPath(CLOUD_SETTINGS_PATH);
+  if (!backupPath) { showToast('ログインしてください'); return; }
+
   const { data, error } = await cloudClient.storage
     .from(CLOUD_BACKUP_BUCKET)
-    .download(CLOUD_BACKUP_PATH);
+    .download(backupPath);
   if (error) { showToast('復元に失敗しました：' + error.message); return; }
 
   const text     = await data.text();
@@ -3444,7 +3459,7 @@ async function cloudRestore() {
 
   const { data: settingsData } = await cloudClient.storage
     .from(CLOUD_BACKUP_BUCKET)
-    .download(CLOUD_SETTINGS_PATH);
+    .download(settingsPath);
   if (settingsData) {
     try {
       const settings = JSON.parse(await settingsData.text());
