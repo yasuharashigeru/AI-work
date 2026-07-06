@@ -3208,9 +3208,10 @@ function processImportedCSV(text) {
     let dateRaw, type, category, payment, memo, amountRaw;
 
     if (isLedgerFormat) {
-      const [d, debitAccount, debitAmount, creditAccount, , note] = fields;
+      // 備考に引用符なしのカンマが含まれると分割されるため、6列目以降を全て備考として結合する
+      const [d, debitAccount, debitAmount, creditAccount] = fields;
       dateRaw = d;
-      memo = note;
+      memo = fields.slice(5).join(',');
       amountRaw = debitAmount;
       if (LEDGER_ASSET_ACCOUNTS.has(debitAccount)) {
         type = 'income';
@@ -3222,13 +3223,14 @@ function processImportedCSV(text) {
         payment = creditAccount;
       }
     } else {
-      const [d, typeLabel, c, p, m, a] = fields;
+      // 金額は必ず最終列なので、備考に引用符なしのカンマがあっても金額列がずれないようにする
+      const [d, typeLabel, c, p] = fields;
       dateRaw = d;
       type = typeLabel === '収入' ? 'income' : 'expense';
       category = c;
       payment = p;
-      memo = m;
-      amountRaw = a;
+      memo = fields.slice(4, fields.length - 1).join(',');
+      amountRaw = fields[fields.length - 1];
     }
 
     const date = normalizeImportDate(dateRaw);
