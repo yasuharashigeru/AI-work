@@ -54,7 +54,7 @@
     align-items: center;
     max-width: 100%;
   }
-  .header-side { width: 40px; display: flex; justify-content: flex-end; }
+  .header-side { min-width: 40px; display: flex; justify-content: flex-end; }
   .header-title {
     font-size: 17px;
     color: var(--text2);
@@ -1114,8 +1114,6 @@
   <div class="header-side">
     <button class="header-export-btn" id="headerPDFBtn" onclick="exportPDF()">PDF</button>
     <button class="header-export-btn" id="headerCSVBtn" onclick="exportCSV()">CSV</button>
-    <button class="header-export-btn" id="headerCSVImportBtn" onclick="importCSV()" style="display:none">読込</button>
-    <input type="file" id="csvImportInput" accept=".csv,text/csv" style="display:none" onchange="handleCSVImportFile(this)">
   </div>
   <span class="header-title" id="headerTitle">損益表</span>
   <div class="header-side" style="justify-content:flex-end">
@@ -1588,8 +1586,7 @@ function showTab(name) {
   document.getElementById('headerTitle').textContent = titles[name] || '';
   document.getElementById('headerPLBtn').style.visibility = name === 'home' ? 'visible' : 'hidden';
   document.getElementById('headerPDFBtn').style.display   = name === 'home'    ? 'block' : 'none';
-  document.getElementById('headerCSVBtn').style.display       = name === 'history' ? 'block' : 'none';
-  document.getElementById('headerCSVImportBtn').style.display = name === 'history' ? 'block' : 'none';
+  document.getElementById('headerCSVBtn').style.display = name === 'history' ? 'block' : 'none';
   document.getElementById('plMenu').style.display = 'none';
 
   if (name === 'home')    renderPL();
@@ -3120,155 +3117,6 @@ function exportCSV() {
   a.download = `収支_${ymLabel}.csv`;
   a.click();
   URL.revokeObjectURL(url);
-}
-
-function importCSV() {
-  document.getElementById('csvImportInput').click();
-}
-
-function handleCSVImportFile(input) {
-  const file = input.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    processImportedCSV(e.target.result);
-    input.value = ''; // 同じファイルを続けて選び直せるようにする
-  };
-  reader.readAsText(file, 'UTF-8');
-}
-
-// 引用符（"..."）で囲まれたフィールドやカンマ区切りの金額にも対応したCSV1行パーサー
-function parseCSVLine(line) {
-  const result = [];
-  let cur = '';
-  let inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i];
-    if (inQuotes) {
-      if (c === '"') {
-        if (line[i + 1] === '"') { cur += '"'; i++; }
-        else { inQuotes = false; }
-      } else {
-        cur += c;
-      }
-    } else if (c === '"') {
-      inQuotes = true;
-    } else if (c === ',') {
-      result.push(cur);
-      cur = '';
-    } else {
-      cur += c;
-    }
-  }
-  result.push(cur);
-  return result.map(s => s.trim());
-}
-
-// スプレッドシートアプリで開き直すと日付の書式が変わることがあるため、主要な表記ゆれを吸収する
-function normalizeImportDate(str) {
-  if (!str) return null;
-  str = str.trim();
-  let m = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
-  if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
-  m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (m) return `${m[3]}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`;
-  const d = new Date(str);
-  if (!isNaN(d.getTime())) {
-    const pad = n => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  }
-  return null;
-}
-
-function normalizeImportAmount(str) {
-  if (!str) return 0;
-  const cleaned = String(str).replace(/[,¥\s]/g, '');
-  const n = parseInt(cleaned, 10);
-  return isNaN(n) ? 0 : n;
-}
-
-// 借方勘定がこれらの資産科目のときは「入金」＝収入行（貸方勘定が収入科目）とみなす
-const LEDGER_ASSET_ACCOUNTS = new Set(['現金', '普通預金', '当座預金', '定期預金', '受取手形', '振込']);
-
-function processImportedCSV(text) {
-  const clean = text.replace(/^﻿/, '');
-  const lines = clean.split(/\r\n|\n/).filter(l => l.trim() !== '');
-  if (lines.length < 1) { showToast('CSVの読み込みに失敗しました'); return; }
-  const header = lines.shift(); // ヘッダー行を捨てる
-  // taxnote等の複式簿記形式（日付,借方勘定,借方金額,貸方勘定,貸方金額,備考）か、
-  // 本アプリのエクスポート形式（日付,種別,科目,支払方法,備考,金額）かを判定する
-  const isLedgerFormat = header.includes('借方');
-
-  let nextId = Date.now();
-  const rows = [];
-  let skipped = 0;
-
-  for (const line of lines) {
-    const fields = parseCSVLine(line);
-    let dateRaw, type, category, payment, memo, amountRaw;
-
-    if (isLedgerFormat) {
-      // 備考に引用符なしのカンマが含まれると分割されるため、6列目以降を全て備考として結合する
-      const [d, debitAccount, debitAmount, creditAccount] = fields;
-      dateRaw = d;
-      memo = fields.slice(5).join(',');
-      amountRaw = debitAmount;
-      if (LEDGER_ASSET_ACCOUNTS.has(debitAccount)) {
-        type = 'income';
-        payment = debitAccount;
-        category = creditAccount;
-      } else {
-        type = 'expense';
-        category = debitAccount;
-        payment = creditAccount;
-      }
-    } else {
-      // 金額は必ず最終列なので、備考に引用符なしのカンマがあっても金額列がずれないようにする
-      const [d, typeLabel, c, p] = fields;
-      dateRaw = d;
-      type = typeLabel === '収入' ? 'income' : 'expense';
-      category = c;
-      payment = p;
-      memo = fields.slice(4, fields.length - 1).join(',');
-      amountRaw = fields[fields.length - 1];
-    }
-
-    const date = normalizeImportDate(dateRaw);
-    if (!date || !category) { skipped++; continue; }
-    rows.push({
-      id: nextId++,
-      date,
-      type,
-      category,
-      payment: payment || '',
-      memo: memo || '',
-      amount: normalizeImportAmount(amountRaw)
-    });
-  }
-
-  if (rows.length === 0) { showToast('読み込める行がありませんでした（日付や科目の形式をご確認ください）'); return; }
-
-  const confirmMsg = skipped > 0
-    ? `現在のデータを、このCSV（${rows.length}件、日付不正等で${skipped}件スキップ）の内容で上書きします。\nよろしいですか？`
-    : `現在のデータを、このCSV（${rows.length}件）の内容で上書きします。\nよろしいですか？`;
-  if (!confirm(confirmMsg)) return;
-
-  const expenseSet = new Set(getExpenseSubs());
-  const incomeSet  = new Set(getIncomeSubs());
-  const paymentSet = new Set(getPaymentMethods());
-  rows.forEach(r => {
-    if (r.type === 'income') incomeSet.add(r.category); else expenseSet.add(r.category);
-    if (r.payment) paymentSet.add(r.payment);
-  });
-
-  saveData(rows);
-  saveExpenseSubs([...expenseSet]);
-  saveIncomeSubs([...incomeSet]);
-  savePaymentMethods([...paymentSet]);
-  buildFilterYearOptions();
-  renderHistory();
-  renderPL();
-  showToast(`${rows.length}件を読み込みました${skipped > 0 ? `（${skipped}件スキップ）` : ''}`);
 }
 
 function exportPDF() {
