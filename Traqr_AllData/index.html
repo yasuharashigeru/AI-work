@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="apple-touch-icon" href="icon.png">
 <title>Traqr</title>
-<!-- build: 2026-07-06-c -->
+<!-- build: 2026-07-06-d -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
@@ -3106,9 +3106,9 @@ function exportCSV() {
     e.type === 'income' ? '収入' : '支出',
     e.category,
     e.payment || '',
-    (e.memo || '').replace(/,/g, '、'),
+    e.memo || '',
     e.amount
-  ].join(','));
+  ].map(csvField).join(','));
 
   const bom  = '﻿';
   const csv  = bom + [header, ...rows].join('\r\n');
@@ -3162,6 +3162,13 @@ function parseCSVLine(line) {
   }
   result.push(cur);
   return result.map(s => s.trim());
+}
+
+// カンマ・引用符・改行を含む値は "..." で囲み、内部の引用符は "" に二重化する
+function csvField(value) {
+  const s = String(value ?? '');
+  if (/[",\r\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+  return s;
 }
 
 // スプレッドシートアプリで開き直すと日付の書式が変わることがあるため、主要な表記ゆれを吸収する
@@ -3344,9 +3351,9 @@ function buildFullBackupCSV() {
     e.type === 'income' ? '収入' : '支出',
     e.category,
     e.payment || '',
-    (e.memo || '').replace(/,/g, '、'),
+    e.memo || '',
     e.amount
-  ].join(','));
+  ].map(csvField).join(','));
   return '﻿' + [header, ...rows].join('\r\n');
 }
 
@@ -3356,7 +3363,7 @@ function parseFullBackupCSV(text) {
   if (lines.length < 1) return [];
   lines.shift(); // ヘッダー行を捨てる
   return lines.map(line => {
-    const [id, date, typeLabel, category, payment, memo, amount] = line.split(',');
+    const [id, date, typeLabel, category, payment, memo, amount] = parseCSVLine(line);
     return {
       id: parseInt(id) || (Date.now() + Math.floor(Math.random() * 1000)),
       date,
