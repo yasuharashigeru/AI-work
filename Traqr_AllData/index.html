@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="apple-touch-icon" href="icon.png">
 <title>Traqr</title>
-<!-- build: 2026-07-06-h -->
+<!-- build: 2026-07-06-i -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
@@ -450,6 +450,7 @@
 
   .input-row-value-nav { display: flex; align-items: center; gap: 6px; }
   .input-row-value { font-size: 15px; font-weight: bold; color: var(--text); }
+  .input-row-value.placeholder { font-weight: normal; color: var(--text2); }
   .input-row-chevron { font-size: 18px; color: var(--text2); line-height: 1; }
   .input-subject-right { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
   .input-subject-memo { font-size: 11px; color: var(--text2); font-weight: normal; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1211,7 +1212,7 @@
   <div class="input-row" onclick="openSelSheet('payment')">
     <span class="input-row-label" id="paymentMethodLabel">受け取り方法</span>
     <div class="input-row-value-nav">
-      <span class="input-row-value" id="inputPaymentDisplay">現金</span>
+      <span class="input-row-value placeholder" id="inputPaymentDisplay">選択</span>
       <span class="input-row-chevron">›</span>
     </div>
   </div>
@@ -1221,7 +1222,7 @@
     <span class="input-row-label">科目を選択</span>
     <div class="input-row-value-nav">
       <div class="input-subject-right">
-        <span class="input-row-value" id="inputSubjectDisplay">仕入高</span>
+        <span class="input-row-value placeholder" id="inputSubjectDisplay">選択</span>
         <span class="input-subject-memo" id="inputMemoSubDisplay"></span>
       </div>
       <span class="input-row-chevron">›</span>
@@ -1545,7 +1546,7 @@ function saveMemoSubs(a)       { localStorage.setItem(KEY_MEMO_SUBS,       JSON.
 let currentType     = 'expense';
 let inputDateVal    = new Date();
 let inputAmountStr  = '';
-let inputPayment    = '現金';
+let inputPayment    = '';
 let inputSubject    = '';
 let inputMemo       = '';
 let numpadStr       = '';
@@ -2083,10 +2084,17 @@ function confirmInputDate() {
 function renderInputRow() {
   const isIncome = currentType === 'income';
   document.getElementById('paymentMethodLabel').textContent = isIncome ? '受け取り方法' : '支払方法';
-  document.getElementById('inputPaymentDisplay').textContent = inputPayment || '現金';
+  if (inputPayment && !getPaymentMethods().includes(inputPayment)) inputPayment = '';
+  const paymentEl = document.getElementById('inputPaymentDisplay');
+  paymentEl.textContent = inputPayment || '選択';
+  paymentEl.classList.toggle('placeholder', !inputPayment);
+
   const subs = isIncome ? getIncomeSubs() : getExpenseSubs();
-  if (!inputSubject || !subs.includes(inputSubject)) inputSubject = subs[0];
-  document.getElementById('inputSubjectDisplay').textContent = inputSubject;
+  if (inputSubject && !subs.includes(inputSubject)) inputSubject = '';
+  const subjectEl = document.getElementById('inputSubjectDisplay');
+  subjectEl.textContent = inputSubject || '選択';
+  subjectEl.classList.toggle('placeholder', !inputSubject);
+
   const memoSubEl = document.getElementById('inputMemoSubDisplay');
   if (memoSubEl) memoSubEl.textContent = inputMemo || '';
 }
@@ -2189,16 +2197,16 @@ function deleteItem() {
   items.splice(itemActionIdx, 1);
   if (isPayment) {
     savePaymentMethods(items);
-    if (inputPayment === name) inputPayment = items[0] || '現金';
+    if (inputPayment === name) inputPayment = '';
   } else if (isMemo) {
     const subs = getMemoSubs(); subs[inputSubject] = items; saveMemoSubs(subs);
     if (inputMemo === name) inputMemo = '';
   } else if (currentType === 'income') {
     saveIncomeSubs(items);
-    if (inputSubject === name) inputSubject = items[0] || '';
+    if (inputSubject === name) inputSubject = '';
   } else {
     saveExpenseSubs(items);
-    if (inputSubject === name) inputSubject = items[0] || '';
+    if (inputSubject === name) inputSubject = '';
   }
   closeItemAction();
   renderInputRow();
@@ -2645,7 +2653,7 @@ function resetInputForm() {
   currentType    = 'expense';
   inputDateVal   = new Date();
   inputAmountStr = '';
-  inputPayment   = '現金';
+  inputPayment   = '';
   inputSubject   = '';
   inputMemo      = '';
 
@@ -2680,7 +2688,8 @@ function saveEntry() {
   const date   = `${inputDateVal.getFullYear()}-${pad(inputDateVal.getMonth()+1)}-${pad(inputDateVal.getDate())}`;
 
   if (!amount || amount <= 0) { showToast('金額を入力してください'); return; }
-  if (!inputSubject)           { showToast('科目を選択してください'); return; }
+  if (!inputPayment) { showToast(`${currentType === 'income' ? '受け取り方法' : '支払方法'}を選択してください`); return; }
+  if (!inputSubject) { showToast('科目を選択してください'); return; }
 
   const memo = inputMemo;
   const data = loadData();
