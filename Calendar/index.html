@@ -1,0 +1,1069 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>Calendar</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --border:  #D5D8DD;
+    --text:    #1A1D2E;
+    --text2:   #8A8F99;
+    --weekend: #F0F1F3;
+  }
+
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    font-family: "メイリオ", Meiryo, sans-serif;
+    color: var(--text);
+    background: #FFFFFF;
+  }
+
+  body {
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ---- Month header ---- */
+  #monthHeader {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    flex: 0 0 auto;
+  }
+  #monthLabel {
+    font-size: 18px;
+    letter-spacing: 0.03em;
+    cursor: pointer;
+    min-width: 90px;
+    text-align: center;
+  }
+  .navBtn {
+    background: none;
+    border: none;
+    font-size: 16px;
+    color: var(--text2);
+    cursor: pointer;
+    padding: 4px 10px;
+    line-height: 1;
+  }
+  .navBtn:hover { color: var(--text); }
+
+  /* ---- Grid ---- */
+  #gridScroll {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-width: none;
+    /* Our own virtualized scroll math fully owns scrollTop (prependWeeks/appendWeeks
+       compensate it manually). Chromium's scroll-anchoring heuristic reacts to the
+       row-height reflow those functions trigger and applies its own extra scrollTop
+       correction on top of ours, double-adjusting and causing a momentary jump to the
+       wrong week/month during scroll. Opt this container out of that behavior. */
+    overflow-anchor: none;
+  }
+  #gridScroll::-webkit-scrollbar { display: none; }
+  .weekRow {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    position: relative;
+  }
+  .dayCell {
+    flex: 1 1 0;
+    border-right: 1px solid var(--border);
+    padding: 4px 6px;
+    overflow: hidden;
+    position: relative;
+  }
+  .dayCell:last-child { border-right: none; }
+  .dayCell.weekend { background: var(--weekend); }
+  .dayNum {
+    font-size: 12px;
+    color: var(--text2);
+  }
+  .dayCell.today .dayNum {
+    color: #fff;
+    background: var(--text);
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+  }
+
+  /* ---- single-day events ---- */
+  .evtRow {
+    font-size: 11px;
+    color: var(--text);
+    padding: 1px 4px;
+    margin-top: 2px;
+    border-radius: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .quickInput {
+    display: block;
+    width: 100%;
+    margin-top: 2px;
+    border: none;
+    border-bottom: 1px solid var(--text2);
+    background: transparent;
+    font: 11px "メイリオ", Meiryo, sans-serif;
+    color: var(--text);
+    outline: none;
+    padding: 1px 2px;
+  }
+
+  /* ---- band (multi-day) events ---- */
+  .bandBar {
+    position: absolute;
+    height: 16px;
+    border-radius: 8px;
+    font-size: 10px;
+    line-height: 16px;
+    padding-left: 6px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    cursor: pointer;
+    color: var(--text);
+    z-index: 5;
+  }
+  .bandBar.ghost { opacity: 0.55; pointer-events: none; }
+  .bandInputPopover input {
+    font: 12px "メイリオ", Meiryo, sans-serif;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 5px 8px;
+    outline: none;
+    min-width: 160px;
+  }
+  .warningPopover { font-size: 12px; color: #C0392B; max-width: 200px; }
+
+  /* ---- floating popovers ---- */
+  .floatingPopover {
+    position: fixed;
+    z-index: 500;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.14);
+    padding: 8px;
+  }
+  .palettePopover { display: flex; gap: 6px; }
+  .swatch {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    cursor: pointer;
+  }
+  .choicePrompt { display: flex; flex-direction: column; gap: 4px; min-width: 140px; }
+  .choicePrompt button {
+    font: 12px "メイリオ", Meiryo, sans-serif;
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: #fff;
+    cursor: pointer;
+    text-align: left;
+  }
+  .choicePrompt button:hover { background: var(--weekend); }
+
+  /* ---- detail modal ---- */
+  .detailOverlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.25);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 600;
+  }
+  .detailOverlay.hidden { display: none; }
+  .detailCard {
+    background: #fff;
+    border-radius: 10px;
+    padding: 16px;
+    width: 340px;
+    max-height: 80vh;
+    overflow-y: auto;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+  }
+  .detailHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+    font-size: 15px;
+  }
+  .detailItem {
+    border-top: 1px solid var(--border);
+    padding-top: 10px;
+    margin-top: 10px;
+  }
+  .detailItem:first-child { border-top: none; margin-top: 0; padding-top: 0; }
+  .detailItem .evtText { font-size: 13px; margin-bottom: 6px; }
+  .swatchRow { display: flex; gap: 6px; margin-bottom: 6px; }
+  .swatchRow .swatch.selected { outline: 2px solid var(--text); outline-offset: 1px; }
+  .detailItem input[type="time"], .detailItem textarea {
+    display: block;
+    width: 100%;
+    font: 12px "メイリオ", Meiryo, sans-serif;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 4px 6px;
+    margin-bottom: 6px;
+  }
+  .detailItem textarea { resize: vertical; min-height: 40px; }
+  .deleteBtn {
+    font-size: 11px;
+    color: #C0392B;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+  }
+</style>
+</head>
+<body>
+
+<div id="monthHeader">
+  <button class="navBtn" id="prevMonthBtn">&lt;</button>
+  <span id="monthLabel">----.--</span>
+  <button class="navBtn" id="nextMonthBtn">&gt;</button>
+</div>
+<div id="gridScroll">
+  <div id="gridInner"></div>
+</div>
+
+<div id="detailOverlay" class="detailOverlay hidden">
+  <div class="detailCard">
+    <div class="detailHeader">
+      <span id="detailDateLabel"></span>
+      <button id="detailCloseBtn" class="navBtn">&times;</button>
+    </div>
+    <div id="detailList"></div>
+  </div>
+</div>
+
+<script>
+const JapaneseHolidays = require('japanese-holidays');
+const { ipcRenderer } = require('electron');
+const fs = require('fs');
+
+// ---- persistence ----
+let dataPath = null;
+let data = null;
+let saveTimer = null;
+
+function defaultData() {
+  return {
+    version: 1,
+    palette: ['#FFF3B0', '#CDEFFB', '#FBD8D8', '#D8F5D8', '#E3E3E3'],
+    singles: {},
+    bands: []
+  };
+}
+
+async function loadData() {
+  dataPath = await ipcRenderer.invoke('get-data-path');
+  if (fs.existsSync(dataPath)) {
+    try { data = JSON.parse(fs.readFileSync(dataPath, 'utf8')); }
+    catch (e) { data = defaultData(); }
+  } else {
+    data = defaultData();
+  }
+}
+
+function scheduleSave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    fs.writeFileSync(dataPath, JSON.stringify(data, null, 2));
+  }, 400);
+}
+
+function genId(prefix) {
+  return (prefix || 's') + '_' + Math.random().toString(36).slice(2, 8);
+}
+
+function getSingles(ds) {
+  return data.singles[ds] || [];
+}
+function addSingleEvent(ds, ev) {
+  if (!data.singles[ds]) data.singles[ds] = [];
+  data.singles[ds].push(ev);
+  scheduleSave();
+}
+function updateSingleColor(ds, id, colorIdx) {
+  const ev = getSingles(ds).find(e => e.id === id);
+  if (ev) { ev.color = colorIdx; scheduleSave(); refreshCell(ds); }
+}
+
+function bandsForDate(ds) {
+  return data.bands.filter(b => b.start <= ds && ds <= b.end);
+}
+function deleteBand(id) {
+  data.bands = data.bands.filter(b => b.id !== id);
+  scheduleSave();
+  rerenderAllBands();
+}
+// Greedy lane assignment (earliest start first) capped at 3 lanes; returns Map(band -> laneIndex, -1 = overflow)
+function assignLanes(list) {
+  const sorted = [...list].sort((a, b) => a.start.localeCompare(b.start) || (a.id || '').localeCompare(b.id || ''));
+  const laneEnd = [null, null, null];
+  const laneOf = new Map();
+  for (const band of sorted) {
+    let placed = false;
+    for (let i = 0; i < laneEnd.length; i++) {
+      if (laneEnd[i] === null || laneEnd[i] < band.start) {
+        laneEnd[i] = band.end;
+        laneOf.set(band, i);
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) laneOf.set(band, -1);
+  }
+  return laneOf;
+}
+function bandWouldOverflow(candidate) {
+  // A new band must be rejected if it would push any single date past 3 overlapping bands.
+  // (Checked per-date directly, rather than via lane tie-break, so an existing committed
+  // band can never be the one silently bumped out by the tie-break order.)
+  let d = new Date(candidate.start);
+  const end = new Date(candidate.end);
+  while (d <= end) {
+    const ds = toDs(d);
+    const count = data.bands.filter(b => b.start <= ds && ds <= b.end).length;
+    if (count >= BAND_LANES) return true;
+    d = addDays(d, 1);
+  }
+  return false;
+}
+
+// ---- date helpers ----
+function toDs(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+function addDays(date, n) {
+  const d = new Date(date);
+  d.setDate(d.getDate() + n);
+  return d;
+}
+function stripTime(date) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+function mondayStart(date) {
+  const d = stripTime(date);
+  const day = d.getDay(); // 0 Sun .. 6 Sat
+  const diff = (day + 6) % 7; // days since Monday
+  d.setDate(d.getDate() - diff);
+  return d;
+}
+function canonicalRowStart(year, month) {
+  // Monday of the week containing day 1 of (year, month) [month: 0-indexed]
+  return mondayStart(new Date(year, month, 1));
+}
+function isWeekendOrHoliday(date) {
+  const day = date.getDay();
+  if (day === 0 || day === 6) return true;
+  return !!JapaneseHolidays.isHoliday(date);
+}
+
+// ---- state ----
+const today = stripTime(new Date());
+const VISIBLE = 5;   // weeks visible in viewport
+const BUFFER = 5;    // weeks buffered above/below
+const CAP = VISIBLE + BUFFER * 2; // total resident week-rows
+
+const gridScroll = document.getElementById('gridScroll');
+const gridInner = document.getElementById('gridInner');
+const monthLabelEl = document.getElementById('monthLabel');
+
+let weekStarts = [];        // ascending array of Monday Dates, mirrors gridInner children
+let currentMonthKey = null; // year*12 + month (0-indexed), the currently displayed header month
+let rowHeightCache = 0;
+let previewBand = null;     // ephemeral drag-preview band, not persisted
+
+// ---- rendering ----
+function buildWeekRow(weekStart) {
+  const row = document.createElement('div');
+  row.className = 'weekRow';
+  for (let i = 0; i < 7; i++) {
+    const date = addDays(weekStart, i);
+    const cell = document.createElement('div');
+    cell.className = 'dayCell';
+    cell.dataset.date = toDs(date);
+    if (isWeekendOrHoliday(date)) cell.classList.add('weekend');
+    if (toDs(date) === toDs(today)) cell.classList.add('today');
+
+    const num = document.createElement('div');
+    num.className = 'dayNum';
+    num.textContent = date.getDate();
+    cell.appendChild(num);
+
+    renderCellEvents(cell, cell.dataset.date);
+    cell.addEventListener('mousedown', (e) => onCellMouseDown(e, cell.dataset.date));
+
+    row.appendChild(cell);
+  }
+  return row;
+}
+
+function findCellEl(ds) {
+  return gridInner.querySelector(`.dayCell[data-date="${ds}"]`);
+}
+
+function renderCellEvents(cell, ds) {
+  cell.querySelectorAll('.evtRow').forEach(n => n.remove());
+  for (const ev of getSingles(ds)) {
+    const row = document.createElement('div');
+    row.className = 'evtRow';
+    row.style.background = data.palette[ev.color];
+    row.textContent = ev.text;
+    row.dataset.id = ev.id;
+    cell.appendChild(row);
+  }
+}
+
+function refreshCell(ds) {
+  const cell = findCellEl(ds);
+  if (cell) renderCellEvents(cell, ds);
+}
+
+// ---- band (multi-day event) rendering ----
+const BAND_LANES = 3;
+const BAND_H = 16;
+const BAND_GAP = 2;
+
+function dayIndexInWeek(weekStart, ds) {
+  return Math.round((new Date(ds) - weekStart) / 86400000);
+}
+
+function renderBandsForRow(rowEl, weekStart) {
+  rowEl.querySelectorAll('.bandBar').forEach(n => n.remove());
+  const weekStartDs = toDs(weekStart);
+  const weekEndDs = toDs(addDays(weekStart, 6));
+  let intersecting = data.bands.filter(b => b.start <= weekEndDs && b.end >= weekStartDs);
+  if (previewBand && previewBand.start <= weekEndDs && previewBand.end >= weekStartDs) {
+    intersecting = intersecting.concat([previewBand]);
+  }
+  if (intersecting.length === 0) return;
+  const laneOf = assignLanes(intersecting);
+  const cells = rowEl.children;
+  const rowH = rowEl.clientHeight || rowHeightCache;
+  const areaTop = rowH - BAND_LANES * (BAND_H + BAND_GAP);
+  for (const band of intersecting) {
+    const lane = laneOf.get(band);
+    if (lane === undefined || lane === -1) continue;
+    const clipStart = band.start > weekStartDs ? band.start : weekStartDs;
+    const clipEnd = band.end < weekEndDs ? band.end : weekEndDs;
+    const startIdx = dayIndexInWeek(weekStart, clipStart);
+    const endIdx = dayIndexInWeek(weekStart, clipEnd);
+    const left = cells[startIdx].offsetLeft;
+    const right = cells[endIdx].offsetLeft + cells[endIdx].offsetWidth;
+    const bar = document.createElement('div');
+    bar.className = 'bandBar' + (band === previewBand ? ' ghost' : '');
+    bar.dataset.id = band.id;
+    bar.style.left = left + 'px';
+    bar.style.width = (right - left) + 'px';
+    bar.style.top = (areaTop + lane * (BAND_H + BAND_GAP)) + 'px';
+    bar.style.background = data.palette[band.color];
+    if (clipStart === band.start) bar.textContent = band.text;
+    if (band !== previewBand) {
+      bar.addEventListener('mousedown', (e) => {
+        const ds = cellDateAtPoint(e.clientX, e.clientY) || band.start;
+        onCellMouseDown(e, ds);
+      });
+    }
+    rowEl.appendChild(bar);
+  }
+}
+
+function rerenderAllBands() {
+  const rows = gridInner.children;
+  for (let i = 0; i < weekStarts.length; i++) {
+    renderBandsForRow(rows[i], weekStarts[i]);
+  }
+}
+
+// ---- floating popovers ----
+function closeFloating() {
+  document.querySelectorAll('.floatingPopover').forEach(n => n.remove());
+}
+function positionPopover(pop, rect) {
+  document.body.appendChild(pop);
+  const left = Math.min(rect.left, window.innerWidth - pop.offsetWidth - 8);
+  pop.style.left = Math.max(4, left) + 'px';
+  pop.style.top = (rect.bottom + 4) + 'px';
+}
+function openPalettePicker(cell, onPick) {
+  closeFloating();
+  const pop = document.createElement('div');
+  pop.className = 'floatingPopover palettePopover';
+  data.palette.forEach((hex, idx) => {
+    const sw = document.createElement('div');
+    sw.className = 'swatch';
+    sw.style.background = hex;
+    makeSwatchInteractive(sw, idx, () => { onPick(idx); closeFloating(); });
+    pop.appendChild(sw);
+  });
+  positionPopover(pop, cell.getBoundingClientRect());
+  setTimeout(() => document.addEventListener('mousedown', outsideCloser, { once: true }), 0);
+}
+function outsideCloser(e) {
+  if (e.target.closest && e.target.closest('.floatingPopover')) {
+    setTimeout(() => document.addEventListener('mousedown', outsideCloser, { once: true }), 0);
+    return;
+  }
+  closeFloating();
+}
+function openColorChoicePrompt(cell, lastColorIdx, onResolve) {
+  closeFloating();
+  const pop = document.createElement('div');
+  pop.className = 'floatingPopover choicePrompt';
+  const btnSame = document.createElement('button');
+  btnSame.textContent = '同じ色のまま';
+  btnSame.addEventListener('click', (e) => { e.stopPropagation(); onResolve(lastColorIdx); closeFloating(); });
+  const btnNew = document.createElement('button');
+  btnNew.textContent = '新しい色を選ぶ';
+  btnNew.addEventListener('click', (e) => { e.stopPropagation(); closeFloating(); openPalettePicker(cell, onResolve); });
+  pop.appendChild(btnSame);
+  pop.appendChild(btnNew);
+  positionPopover(pop, cell.getBoundingClientRect());
+  setTimeout(() => document.addEventListener('mousedown', outsideCloser, { once: true }), 0);
+}
+
+// ---- palette slot customization (long-press a swatch to recolor its slot globally) ----
+const LOCKED_SLOT = 4; // fixed gray slot, mirrors weekend/holiday shading, not user-recolorable
+function makeSwatchInteractive(swatchEl, slotIndex, onSelect) {
+  let timer = null;
+  let mode = 'idle';
+  swatchEl.addEventListener('mousedown', (e) => {
+    e.stopPropagation();
+    mode = 'pending';
+    timer = setTimeout(() => {
+      mode = 'long';
+      if (slotIndex !== LOCKED_SLOT) openSlotColorPicker(slotIndex);
+    }, LONG_PRESS_MS);
+  });
+  swatchEl.addEventListener('mouseup', (e) => {
+    e.stopPropagation();
+    clearTimeout(timer);
+    if (mode === 'pending') onSelect();
+    mode = 'idle';
+  });
+  swatchEl.addEventListener('mouseleave', () => { clearTimeout(timer); mode = 'idle'; });
+}
+function rerenderAllCells() {
+  gridInner.querySelectorAll('.dayCell').forEach(cell => renderCellEvents(cell, cell.dataset.date));
+}
+function openSlotColorPicker(slotIndex) {
+  const input = document.createElement('input');
+  input.type = 'color';
+  input.value = data.palette[slotIndex];
+  input.style.position = 'fixed';
+  input.style.left = '-9999px';
+  document.body.appendChild(input);
+  input.addEventListener('change', () => {
+    data.palette[slotIndex] = input.value;
+    scheduleSave();
+    rerenderAllCells();
+    rerenderAllBands();
+    if (!detailOverlay.classList.contains('hidden')) renderDetailList(detailDateLabel.textContent);
+  });
+  input.addEventListener('blur', () => setTimeout(() => input.remove(), 200));
+  input.click();
+}
+
+// ---- quick input (click empty/populated cell to add a single-day event) ----
+function openQuickInput(ds) {
+  closeFloating();
+  const cell = findCellEl(ds);
+  if (!cell || cell.querySelector('.quickInput')) return;
+  const input = document.createElement('input');
+  input.className = 'quickInput';
+  cell.appendChild(input);
+  input.focus();
+  let done = false;
+  function finish(commit) {
+    if (done) return;
+    done = true;
+    const text = input.value.trim();
+    input.remove();
+    if (commit && text) handleNewSingleText(ds, text);
+  }
+  input.addEventListener('mousedown', (e) => e.stopPropagation());
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') finish(true);
+    else if (e.key === 'Escape') finish(false);
+  });
+  input.addEventListener('blur', () => finish(true));
+}
+
+function handleNewSingleText(ds, text) {
+  const cell = findCellEl(ds);
+  const list = getSingles(ds);
+  const id = genId();
+  if (list.length === 0) {
+    addSingleEvent(ds, { id, text, color: 0, time: '', memo: '' });
+    refreshCell(ds);
+    openPalettePicker(cell, (colorIdx) => updateSingleColor(ds, id, colorIdx));
+  } else {
+    const lastColor = list[list.length - 1].color;
+    addSingleEvent(ds, { id, text, color: lastColor, time: '', memo: '' });
+    refreshCell(ds);
+    openColorChoicePrompt(cell, lastColor, (colorIdx) => {
+      if (colorIdx !== lastColor) updateSingleColor(ds, id, colorIdx);
+    });
+  }
+}
+
+// ---- mouse gesture state machine ----
+const LONG_PRESS_MS = 450;
+const MOVE_THRESHOLD = 4;
+let gesture = { mode: 'idle' };
+
+function cellDateAtPoint(x, y) {
+  const el = document.elementFromPoint(x, y);
+  const cell = el && el.closest('.dayCell');
+  return cell ? cell.dataset.date : null;
+}
+
+function onCellMouseDown(e, ds) {
+  if (e.button !== 0 || e.target.tagName === 'INPUT') return;
+  clearTimeout(gesture.timer);
+  gesture = { mode: 'pending', startDs: ds, startX: e.clientX, startY: e.clientY, timer: null };
+  gesture.timer = setTimeout(() => {
+    if (gesture.mode === 'pending') {
+      gesture.mode = 'long-press';
+      onLongPressFire(gesture.startDs);
+    }
+  }, LONG_PRESS_MS);
+  document.addEventListener('mousemove', onDocMouseMove);
+  document.addEventListener('mouseup', onDocMouseUp);
+}
+function onDocMouseMove(e) {
+  if (gesture.mode === 'idle') return;
+  const dx = e.clientX - gesture.startX, dy = e.clientY - gesture.startY;
+  if (gesture.mode === 'pending' && Math.hypot(dx, dy) > MOVE_THRESHOLD) {
+    clearTimeout(gesture.timer);
+    gesture.mode = 'band-drag';
+    startBandPreview(gesture.startDs);
+  }
+  if (gesture.mode === 'band-drag') {
+    const hoverDs = cellDateAtPoint(e.clientX, e.clientY);
+    if (hoverDs) updateBandPreview(gesture.startDs, hoverDs);
+  }
+}
+function onDocMouseUp(e) {
+  clearTimeout(gesture.timer);
+  const endDs = cellDateAtPoint(e.clientX, e.clientY) || gesture.startDs;
+  if (gesture.mode === 'pending') {
+    openQuickInput(gesture.startDs);
+  } else if (gesture.mode === 'band-drag') {
+    finishBandDrag(gesture.startDs, endDs);
+  }
+  gesture = { mode: 'idle' };
+  document.removeEventListener('mousemove', onDocMouseMove);
+  document.removeEventListener('mouseup', onDocMouseUp);
+}
+function onLongPressFire(ds) {
+  if (getSingles(ds).length > 0 || bandsForDate(ds).length > 0) openDetailModal(ds);
+}
+
+// ---- band drag creation ----
+function startBandPreview(ds) {
+  previewBand = { start: ds, end: ds, color: 1, text: '' };
+  rerenderAllBands();
+}
+function updateBandPreview(startDs, hoverDs) {
+  if (!previewBand) return;
+  previewBand.start = startDs < hoverDs ? startDs : hoverDs;
+  previewBand.end = startDs < hoverDs ? hoverDs : startDs;
+  rerenderAllBands();
+}
+function finishBandDrag(startDs, endDsRaw) {
+  previewBand = null;
+  rerenderAllBands();
+  const start = startDs < endDsRaw ? startDs : endDsRaw;
+  const end = startDs < endDsRaw ? endDsRaw : startDs;
+  const candidate = { id: genId('b'), text: '', start, end, color: 1, time: '', memo: '' };
+  if (bandWouldOverflow(candidate)) {
+    showInlineWarning(start, 'この週は帯を3本までしか追加できません');
+    return;
+  }
+  openBandTextInput(candidate);
+}
+function showInlineWarning(ds, msg) {
+  closeFloating();
+  const cell = findCellEl(ds);
+  if (!cell) return;
+  const pop = document.createElement('div');
+  pop.className = 'floatingPopover warningPopover';
+  pop.textContent = msg;
+  positionPopover(pop, cell.getBoundingClientRect());
+  setTimeout(() => pop.remove(), 1600);
+}
+function openBandTextInput(candidate) {
+  closeFloating();
+  const cell = findCellEl(candidate.start);
+  if (!cell) return;
+  const pop = document.createElement('div');
+  pop.className = 'floatingPopover bandInputPopover';
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.placeholder = '予定名';
+  pop.appendChild(input);
+  positionPopover(pop, cell.getBoundingClientRect());
+  input.focus();
+  let done = false;
+  function finish(commit) {
+    if (done) return;
+    done = true;
+    const text = input.value.trim();
+    closeFloating();
+    if (commit && text) {
+      candidate.text = text;
+      data.bands.push(candidate);
+      scheduleSave();
+      rerenderAllBands();
+    }
+  }
+  input.addEventListener('mousedown', (e) => e.stopPropagation());
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') finish(true);
+    else if (e.key === 'Escape') finish(false);
+  });
+  input.addEventListener('blur', () => finish(true));
+  setTimeout(() => document.addEventListener('mousedown', outsideCloser, { once: true }), 0);
+}
+
+// ---- detail modal (long-press a populated cell) ----
+const detailOverlay = document.getElementById('detailOverlay');
+const detailDateLabel = document.getElementById('detailDateLabel');
+const detailList = document.getElementById('detailList');
+document.getElementById('detailCloseBtn').addEventListener('click', closeDetailModal);
+detailOverlay.addEventListener('mousedown', (e) => { if (e.target === detailOverlay) closeDetailModal(); });
+
+function openDetailModal(ds) {
+  closeFloating();
+  detailDateLabel.textContent = ds;
+  renderDetailList(ds);
+  detailOverlay.classList.remove('hidden');
+}
+function closeDetailModal() {
+  detailOverlay.classList.add('hidden');
+}
+function deleteSingleEvent(ds, id) {
+  data.singles[ds] = getSingles(ds).filter(e => e.id !== id);
+  if (data.singles[ds].length === 0) delete data.singles[ds];
+  scheduleSave();
+  refreshCell(ds);
+}
+function renderDetailList(ds) {
+  detailList.innerHTML = '';
+  getSingles(ds).forEach(ev => {
+    const item = document.createElement('div');
+    item.className = 'detailItem';
+
+    const textEl = document.createElement('div');
+    textEl.className = 'evtText';
+    textEl.textContent = ev.text;
+    item.appendChild(textEl);
+
+    const swRow = document.createElement('div');
+    swRow.className = 'swatchRow';
+    data.palette.forEach((hex, idx) => {
+      const sw = document.createElement('div');
+      sw.className = 'swatch' + (ev.color === idx ? ' selected' : '');
+      sw.style.background = hex;
+      makeSwatchInteractive(sw, idx, () => {
+        ev.color = idx;
+        scheduleSave();
+        refreshCell(ds);
+        renderDetailList(ds);
+      });
+      swRow.appendChild(sw);
+    });
+    item.appendChild(swRow);
+
+    const timeInput = document.createElement('input');
+    timeInput.type = 'time';
+    timeInput.value = ev.time || '';
+    timeInput.addEventListener('change', () => { ev.time = timeInput.value; scheduleSave(); });
+    item.appendChild(timeInput);
+
+    const memoInput = document.createElement('textarea');
+    memoInput.placeholder = 'メモ';
+    memoInput.value = ev.memo || '';
+    memoInput.addEventListener('change', () => { ev.memo = memoInput.value; scheduleSave(); });
+    item.appendChild(memoInput);
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'deleteBtn';
+    delBtn.textContent = '削除';
+    delBtn.addEventListener('click', () => {
+      deleteSingleEvent(ds, ev.id);
+      renderDetailList(ds);
+      if (getSingles(ds).length === 0) closeDetailModal();
+    });
+    item.appendChild(delBtn);
+
+    detailList.appendChild(item);
+  });
+
+  bandsForDate(ds).forEach(band => {
+    const item = document.createElement('div');
+    item.className = 'detailItem';
+
+    const textEl = document.createElement('div');
+    textEl.className = 'evtText';
+    textEl.textContent = `${band.text} (${band.start}〜${band.end})`;
+    item.appendChild(textEl);
+
+    const swRow = document.createElement('div');
+    swRow.className = 'swatchRow';
+    data.palette.forEach((hex, idx) => {
+      const sw = document.createElement('div');
+      sw.className = 'swatch' + (band.color === idx ? ' selected' : '');
+      sw.style.background = hex;
+      makeSwatchInteractive(sw, idx, () => {
+        band.color = idx;
+        scheduleSave();
+        rerenderAllBands();
+        renderDetailList(ds);
+      });
+      swRow.appendChild(sw);
+    });
+    item.appendChild(swRow);
+
+    const timeInput = document.createElement('input');
+    timeInput.type = 'time';
+    timeInput.value = band.time || '';
+    timeInput.addEventListener('change', () => { band.time = timeInput.value; scheduleSave(); });
+    item.appendChild(timeInput);
+
+    const memoInput = document.createElement('textarea');
+    memoInput.placeholder = 'メモ';
+    memoInput.value = band.memo || '';
+    memoInput.addEventListener('change', () => { band.memo = memoInput.value; scheduleSave(); });
+    item.appendChild(memoInput);
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'deleteBtn';
+    delBtn.textContent = '削除';
+    delBtn.addEventListener('click', () => {
+      deleteBand(band.id);
+      renderDetailList(ds);
+      if (getSingles(ds).length === 0 && bandsForDate(ds).length === 0) closeDetailModal();
+    });
+    item.appendChild(delBtn);
+
+    detailList.appendChild(item);
+  });
+}
+
+function rowHeightNow() {
+  return gridScroll.clientHeight / VISIBLE;
+}
+
+function applyRowHeights() {
+  const rh = rowHeightNow();
+  for (const row of gridInner.children) row.style.height = rh + 'px';
+  rowHeightCache = rh;
+}
+
+// ---- virtualized week list mutation ----
+function insertFront(n) {
+  const frag = document.createDocumentFragment();
+  const newStarts = [];
+  const rows = [];
+  for (let i = n; i >= 1; i--) {
+    const ws = addDays(weekStarts[0], -7 * i);
+    newStarts.push(ws);
+    const row = buildWeekRow(ws);
+    rows.push(row);
+    frag.appendChild(row);
+  }
+  gridInner.insertBefore(frag, gridInner.firstChild);
+  weekStarts = newStarts.concat(weekStarts);
+  applyRowHeights();
+  rows.forEach((row, idx) => renderBandsForRow(row, newStarts[idx]));
+}
+function insertBack(n) {
+  const frag = document.createDocumentFragment();
+  const newStarts = [];
+  const rows = [];
+  for (let i = 1; i <= n; i++) {
+    const ws = addDays(weekStarts[weekStarts.length - 1], 7 * i);
+    newStarts.push(ws);
+    const row = buildWeekRow(ws);
+    rows.push(row);
+    frag.appendChild(row);
+  }
+  gridInner.appendChild(frag);
+  weekStarts = weekStarts.concat(newStarts);
+  applyRowHeights();
+  rows.forEach((row, idx) => renderBandsForRow(row, newStarts[idx]));
+}
+function removeFront(n) {
+  for (let i = 0; i < n; i++) gridInner.removeChild(gridInner.firstChild);
+  weekStarts = weekStarts.slice(n);
+}
+function removeBack(n) {
+  for (let i = 0; i < n; i++) gridInner.removeChild(gridInner.lastChild);
+  weekStarts = weekStarts.slice(0, weekStarts.length - n);
+}
+
+function prependWeeks(n) {
+  insertFront(n);
+  gridScroll.scrollTop += n * rowHeightCache;
+  const excess = weekStarts.length - CAP;
+  if (excess > 0) removeBack(excess);
+}
+function appendWeeks(n) {
+  insertBack(n);
+  const excess = weekStarts.length - CAP;
+  if (excess > 0) {
+    removeFront(excess);
+    gridScroll.scrollTop -= excess * rowHeightCache;
+  }
+}
+
+function initWeeks(year, month) {
+  gridInner.innerHTML = '';
+  const canonical = canonicalRowStart(year, month);
+  weekStarts = [];
+  for (let i = -BUFFER; i < VISIBLE + BUFFER; i++) weekStarts.push(addDays(canonical, i * 7));
+  const frag = document.createDocumentFragment();
+  const rows = [];
+  weekStarts.forEach(ws => { const row = buildWeekRow(ws); rows.push(row); frag.appendChild(row); });
+  gridInner.appendChild(frag);
+  applyRowHeights();
+  gridScroll.scrollTop = BUFFER * rowHeightCache;
+  currentMonthKey = year * 12 + month;
+  updateMonthLabel();
+  rows.forEach((row, idx) => renderBandsForRow(row, weekStarts[idx]));
+}
+
+// ---- month header: majority vote + snap ----
+function updateMonthLabel() {
+  const rh = rowHeightCache;
+  const top = gridScroll.scrollTop;
+  const bottom = top + gridScroll.clientHeight;
+  const counts = {};
+  for (let i = 0; i < weekStarts.length; i++) {
+    const rowTop = i * rh;
+    const rowBottom = rowTop + rh;
+    if (rowBottom <= top || rowTop >= bottom) continue;
+    // Weight by how much of the row is actually visible, not a flat +1 — otherwise a
+    // row peeking in by just a few px at the top/bottom edge counts as fully visible,
+    // which flips the majority a beat early and then snaps back once row counts settle.
+    const visibleHeight = Math.min(rowBottom, bottom) - Math.max(rowTop, top);
+    for (let d = 0; d < 7; d++) {
+      const date = addDays(weekStarts[i], d);
+      const key = date.getFullYear() * 12 + date.getMonth();
+      counts[key] = (counts[key] || 0) + visibleHeight;
+    }
+  }
+  const keys = Object.keys(counts).map(Number);
+  if (keys.length === 0) return;
+  let maxCount = Math.max(...keys.map(k => counts[k]));
+  const tied = keys.filter(k => counts[k] === maxCount);
+  let winner;
+  if (tied.length === 1) winner = tied[0];
+  else if (tied.includes(currentMonthKey)) winner = currentMonthKey;
+  else winner = Math.max(...tied);
+  currentMonthKey = winner;
+  const y = Math.floor(currentMonthKey / 12);
+  const m = currentMonthKey % 12;
+  monthLabelEl.textContent = `${y}.${m + 1}`;
+}
+
+function ensureRangeLoaded(startDate, endDate) {
+  while (weekStarts[0] > startDate) insertFront(4);
+  while (weekStarts[weekStarts.length - 1] < endDate) insertBack(4);
+}
+
+function jumpToMonth(year, month) {
+  const canonical = canonicalRowStart(year, month);
+  const rangeEnd = addDays(canonical, (VISIBLE - 1) * 7);
+  ensureRangeLoaded(canonical, rangeEnd);
+  const idx = weekStarts.findIndex(ws => ws.getTime() === canonical.getTime());
+  gridScroll.scrollTo({ top: idx * rowHeightCache, behavior: 'smooth' });
+  currentMonthKey = year * 12 + month;
+}
+
+// ---- scroll handling ----
+let scrollScheduled = false;
+function onGridScroll() {
+  if (scrollScheduled) return;
+  scrollScheduled = true;
+  requestAnimationFrame(() => {
+    // Reset the guard only after all buffer/scrollTop mutations are done. prependWeeks/appendWeeks
+    // assign gridScroll.scrollTop themselves, which fires a re-entrant native 'scroll' event; if the
+    // guard were already cleared, that re-entrant event schedules a second rAF that re-runs the
+    // buffer maintenance for the same logical step, doubling the scrollTop compensation and briefly
+    // showing the wrong month.
+    const rh = rowHeightCache;
+    const top = gridScroll.scrollTop;
+    const bottomGap = gridScroll.scrollHeight - gridScroll.clientHeight - top;
+    if (top < 2 * rh) prependWeeks(3);
+    else if (bottomGap < 2 * rh) appendWeeks(3);
+    updateMonthLabel();
+    scrollScheduled = false;
+  });
+}
+
+// ---- resize handling (keep the same top week visually anchored) ----
+function onResize() {
+  const prevRh = rowHeightCache || rowHeightNow();
+  const topIndex = Math.round(gridScroll.scrollTop / prevRh);
+  applyRowHeights();
+  gridScroll.scrollTop = topIndex * rowHeightCache;
+  updateMonthLabel();
+  rerenderAllBands();
+}
+
+// ---- wiring ----
+gridScroll.addEventListener('scroll', onGridScroll);
+window.addEventListener('resize', onResize);
+
+document.getElementById('prevMonthBtn').addEventListener('click', () => {
+  const y = Math.floor(currentMonthKey / 12), m = currentMonthKey % 12;
+  let ny = y, nm = m - 1;
+  if (nm < 0) { nm = 11; ny--; }
+  jumpToMonth(ny, nm);
+});
+document.getElementById('nextMonthBtn').addEventListener('click', () => {
+  const y = Math.floor(currentMonthKey / 12), m = currentMonthKey % 12;
+  let ny = y, nm = m + 1;
+  if (nm > 11) { nm = 0; ny++; }
+  jumpToMonth(ny, nm);
+});
+monthLabelEl.addEventListener('click', () => {
+  const y = Math.floor(currentMonthKey / 12), m = currentMonthKey % 12;
+  jumpToMonth(y, m);
+});
+
+(async () => {
+  await loadData();
+  initWeeks(today.getFullYear(), today.getMonth());
+})();
+</script>
+</body>
+</html>
