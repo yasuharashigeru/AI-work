@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="apple-touch-icon" href="icon.png">
 <title>Traqr</title>
-<!-- build: 2026-07-11-d -->
+<!-- build: 2026-07-11-e -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
@@ -724,6 +724,8 @@
   .jnl-note { font-size: 11px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .jnl-memo { font-size: 11px; color: var(--text2); flex-shrink: 0; max-width: 90px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .jnl-amt  { font-size: 14px; font-weight: bold; flex-shrink: 0; }
+  .jnl-total .jnl-cat { font-weight: bold; }
+  .jnl-total { background: var(--bg); }
 
   /* ---- 備考入力行 ---- */
   .input-memo-row {
@@ -3114,9 +3116,10 @@ function renderHistory() {
 }
 
 // 日付ごとにグループ化した仕訳一覧のHTMLを組み立てる
-// showPayment: true の場合（PDF出力用）、日付ヘッダー行・合計行は出さず、
+// showPayment: true の場合（PDF出力用）、日付ヘッダー・日ごとの合計行は出さず、
 // 各行の備考の前に日付・支払方法を表示する
-function buildJournalGroupsHTML(entries, showPayment) {
+// totalRowHTML: showPayment時のみ、先頭に差し込む合計行（ブロック単位の合計）
+function buildJournalGroupsHTML(entries, showPayment, totalRowHTML = '') {
   const groups = {};
   entries.forEach(e => { (groups[e.date] = groups[e.date] || []).push(e); });
   const dates = Object.keys(groups).sort((a,b) => b.localeCompare(a));
@@ -3155,7 +3158,7 @@ function buildJournalGroupsHTML(entries, showPayment) {
   }).join('');
 
   // PDF出力時は全行を1つのグループにまとめ、日付ごとの区切りで罫線が不揃いにならないようにする
-  return showPayment ? `<div class="jnl-group">${groupsHTML}</div>` : groupsHTML;
+  return showPayment ? `<div class="jnl-group">${totalRowHTML}${groupsHTML}</div>` : groupsHTML;
 }
 
 function buildFilterYearOptions() {
@@ -3406,9 +3409,17 @@ function exportHistoryPDF() {
   const blocks = ['income', 'expense'].map(type => {
     const entries = data.filter(e => e.type === type).sort((a,b) => b.date.localeCompare(a.date));
     if (entries.length === 0) return '';
+    const cls   = type === 'income' ? 'income' : 'expense';
+    const sign  = type === 'income' ? '+' : '-';
+    const total = entries.reduce((s, e) => s + e.amount, 0);
+    const totalRow = `
+      <div class="jnl-entry jnl-total">
+        <div class="jnl-cat-wrap"><span class="jnl-cat">合計</span></div>
+        <span class="jnl-amt ${cls}">${sign}¥${fmt(total)}</span>
+      </div>`;
     return `
       <div class="history-print-header">${periodLabel}　${typeLabel[type]}</div>
-      ${buildJournalGroupsHTML(entries, true)}`;
+      ${buildJournalGroupsHTML(entries, true, totalRow)}`;
   }).filter(Boolean);
 
   area.innerHTML = blocks.length
