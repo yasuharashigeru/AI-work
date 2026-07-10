@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="apple-touch-icon" href="icon.png">
 <title>Traqr</title>
-<!-- build: 2026-07-11-b -->
+<!-- build: 2026-07-11-c -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
@@ -1931,12 +1931,21 @@ function closePLBreakdown() {
   document.getElementById('breakdownPanel').style.display   = 'none';
 }
 
+// iOS Safari/Chromeはwindow.print()が非同期で、呼び出した直後にJSが先に進んでしまう。
+// bodyクラスを即座に外すとスナップショット前に印刷用CSSが解除されてしまうため、
+// afterprint（発火すれば）かタイムアウトのどちらか早い方まで維持する
+function printWithBodyClass(className) {
+  document.body.classList.add(className);
+  const cleanup = () => document.body.classList.remove(className);
+  window.addEventListener('afterprint', cleanup, { once: true });
+  window.print();
+  setTimeout(cleanup, 1000);
+}
+
 function exportBreakdownPDF() {
   document.getElementById('printHeader').textContent =
     document.getElementById('breakdownTitle').textContent;
-  document.body.classList.add('breakdown-print');
-  window.print();
-  document.body.classList.remove('breakdown-print');
+  printWithBodyClass('breakdown-print');
 }
 
 // ============================================================
@@ -3399,9 +3408,7 @@ function exportHistoryPDF() {
     ? blocks.join('<div style="height:16px"></div>')
     : '<div class="empty-msg">該当する記録がありません</div>';
 
-  document.body.classList.add('history-print');
-  window.print();
-  document.body.classList.remove('history-print');
+  printWithBodyClass('history-print');
 }
 
 // ============================================================
