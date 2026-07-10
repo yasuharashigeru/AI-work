@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="apple-touch-icon" href="icon.png">
 <title>Traqr</title>
-<!-- build: 2026-07-11-a -->
+<!-- build: 2026-07-11-b -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
@@ -1087,14 +1087,32 @@
 
   /* ---- 印刷スタイル ---- */
   @media print {
+    /* CSS filter によるグレースケール化はiOS Safari/WebKit系で効かないため、
+       色そのものを白黒トーンに差し替える（全ブラウザで確実に効く方法） */
+    :root {
+      --green:       #333333;
+      --green-mid:   #333333;
+      --green-light: #EEEEEE;
+      --green-pale:  #F5F5F5;
+      --income:      #1A1D2E;
+      --income-bg:   #EEEEEE;
+      --expense:     #1A1D2E;
+      --expense-bg:  #EEEEEE;
+      --text:        #000000;
+      --text2:       #555555;
+      --white:       #FFFFFF;
+      --bg:          #EEEEEE;
+      --border:      #999999;
+    }
     header, nav, #plMenu, .pl-nav-bar, #plNavBar,
     .edit-screen, .calc-screen, .cal-modal, .numpad-panel, .numpad-overlay,
     .sel-sheet-panel, .sel-sheet-overlay, .toast,
     .breakdown-overlay, .breakdown-panel,
     .tab:not(#tab-home) { display: none !important; }
-    body { padding-bottom: 0 !important; background: white; filter: grayscale(100%); -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body { padding-bottom: 0 !important; background: white; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     #tab-home { display: block !important; padding: 0; }
     .pl-balance-card { box-shadow: none; border: 1px solid #ccc; }
+    .pl-balance-amount.negative { color: #FFFFFF; }
     .print-header { display: block !important; }
 
     /* breakdown印刷モード */
