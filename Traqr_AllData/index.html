@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="apple-touch-icon" href="icon.png">
 <title>Traqr</title>
-<!-- build: 2026-07-11-c -->
+<!-- build: 2026-07-11-d -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
@@ -1933,13 +1933,20 @@ function closePLBreakdown() {
 
 // iOS Safari/Chromeはwindow.print()が非同期で、呼び出した直後にJSが先に進んでしまう。
 // bodyクラスを即座に外すとスナップショット前に印刷用CSSが解除されてしまうため、
-// afterprint（発火すれば）かタイムアウトのどちらか早い方まで維持する
+// afterprint（発火すれば）かタイムアウトのどちらか早い方まで維持する。
+// さらに、前回呼び出し分の予約タイマーが後続の呼び出しの途中で発火して
+// クラスを消してしまわないよう、呼び出しごとにトークンで区別する
+let printCallToken = 0;
 function printWithBodyClass(className) {
+  const token = ++printCallToken;
   document.body.classList.add(className);
-  const cleanup = () => document.body.classList.remove(className);
+  const cleanup = () => {
+    if (token !== printCallToken) return; // 後続の呼び出しが既に始まっている
+    document.body.classList.remove(className);
+  };
   window.addEventListener('afterprint', cleanup, { once: true });
   window.print();
-  setTimeout(cleanup, 1000);
+  setTimeout(cleanup, 1500);
 }
 
 function exportBreakdownPDF() {
