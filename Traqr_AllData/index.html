@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="apple-touch-icon" href="icon.png">
 <title>Traqr</title>
-<!-- build: 2026-07-06-i -->
+<!-- build: 2026-07-11-a -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
@@ -1092,7 +1092,7 @@
     .sel-sheet-panel, .sel-sheet-overlay, .toast,
     .breakdown-overlay, .breakdown-panel,
     .tab:not(#tab-home) { display: none !important; }
-    body { padding-bottom: 0 !important; background: white; }
+    body { padding-bottom: 0 !important; background: white; filter: grayscale(100%); -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     #tab-home { display: block !important; padding: 0; }
     .pl-balance-card { box-shadow: none; border: 1px solid #ccc; }
     .print-header { display: block !important; }
@@ -1109,9 +1109,29 @@
       max-height: none !important; border-radius: 0 !important;
       padding: 0 !important; border: none !important;
     }
+
+    /* 仕訳帳印刷モード */
+    body.history-print header, body.history-print nav,
+    body.history-print #plMenu, body.history-print .pl-nav-bar,
+    body.history-print #tab-home,
+    body.history-print .history-filter,
+    body.history-print #historyList { display: none !important; }
+    body.history-print #tab-history { display: block !important; padding: 0; }
+    body.history-print .history-print-area { display: block !important; }
+    body.history-print .jnl-entry {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
   }
   .print-header {
     display: none;
+    font-size: 14px; font-weight: bold;
+    color: var(--text2);
+    padding: 12px 0 6px;
+    text-align: center;
+  }
+  .history-print-area { display: none; }
+  .history-print-header {
     font-size: 14px; font-weight: bold;
     color: var(--text2);
     padding: 12px 0 6px;
@@ -1123,7 +1143,7 @@
 
 <header>
   <div class="header-side">
-    <button class="header-export-btn" id="headerPDFBtn" onclick="exportPDF()">PDF</button>
+    <button class="header-export-btn" id="headerPDFBtn" onclick="headerPDFClick()">PDF</button>
     <button class="header-export-btn" id="headerCSVBtn" onclick="toggleCSVMenu()">CSV</button>
     <input type="file" id="csvImportInput" accept=".csv,text/csv" style="display:none" onchange="handleCSVImportFile(this)">
   </div>
@@ -1255,6 +1275,7 @@
     </select>
   </div>
   <div id="historyList"></div>
+  <div class="history-print-area" id="historyPrintArea"></div>
 </div>
 
 <!-- ========== グラフ TAB ========== -->
@@ -1603,7 +1624,7 @@ function showTab(name) {
   const titles = { home: '損益表', input: '入力', history: '仕訳帳', graph: 'グラフ' };
   document.getElementById('headerTitle').textContent = titles[name] || '';
   document.getElementById('headerPLBtn').style.visibility = name === 'home' ? 'visible' : 'hidden';
-  document.getElementById('headerPDFBtn').style.display   = name === 'home'    ? 'block' : 'none';
+  document.getElementById('headerPDFBtn').style.display   = (name === 'home' || name === 'history') ? 'block' : 'none';
   document.getElementById('headerCSVBtn').style.display = name === 'history' ? 'block' : 'none';
   document.getElementById('plMenu').style.display = 'none';
   document.getElementById('csvMenu').style.display = 'none';
@@ -3055,32 +3076,40 @@ function renderHistory() {
     list.innerHTML = '<div class="empty-msg">該当する記録がありません</div>';
     return;
   }
+  list.innerHTML = buildJournalGroupsHTML(data, false);
+}
 
-  // 日付ごとにグループ化
+// 日付ごとにグループ化した仕訳一覧のHTMLを組み立てる
+// showPayment: true の場合（PDF出力用）、日付ヘッダー行・合計行は出さず、
+// 各行の備考の前に日付・支払方法を表示する
+function buildJournalGroupsHTML(entries, showPayment) {
   const groups = {};
-  data.forEach(e => { (groups[e.date] = groups[e.date] || []).push(e); });
+  entries.forEach(e => { (groups[e.date] = groups[e.date] || []).push(e); });
   const dates = Object.keys(groups).sort((a,b) => b.localeCompare(a));
 
-  list.innerHTML = dates.map(date => {
-    const entries = groups[date];
-    const net     = entries.reduce((s,e) => s + (e.type === 'income' ? e.amount : -e.amount), 0);
-    const netStr  = (net >= 0 ? '+' : '') + '¥' + fmt(net);
+  const groupsHTML = dates.map(date => {
+    const dayEntries = groups[date];
     const d       = new Date(date + 'T00:00:00');
     const dlabel  = `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日`;
 
-    const rows = entries.map(e => {
+    const rows = dayEntries.map(e => {
       const sign = e.type === 'income' ? '+' : '-';
       const cls  = e.type === 'income' ? 'income' : 'expense';
+      const sub  = showPayment ? [dlabel, e.payment, e.memo].filter(Boolean).join('　') : e.memo;
       return `
         <div class="jnl-entry" onclick="openEditScreen('${e.id}')">
           <div class="jnl-cat-wrap">
             <span class="jnl-cat">${e.category}</span>
-            ${e.memo ? `<span class="jnl-note">${e.memo}</span>` : ''}
+            ${sub ? `<span class="jnl-note">${sub}</span>` : ''}
           </div>
           <span class="jnl-amt ${cls}">${sign}¥${fmt(e.amount)}</span>
         </div>`;
     }).join('');
 
+    if (showPayment) return rows;
+
+    const net    = dayEntries.reduce((s,e) => s + (e.type === 'income' ? e.amount : -e.amount), 0);
+    const netStr = (net >= 0 ? '+' : '') + '¥' + fmt(net);
     return `
       <div class="jnl-group">
         <div class="jnl-date-header">
@@ -3090,6 +3119,9 @@ function renderHistory() {
         ${rows}
       </div>`;
   }).join('');
+
+  // PDF出力時は全行を1つのグループにまとめ、日付ごとの区切りで罫線が不揃いにならないようにする
+  return showPayment ? `<div class="jnl-group">${groupsHTML}</div>` : groupsHTML;
 }
 
 function buildFilterYearOptions() {
@@ -3316,6 +3348,42 @@ function exportPDF() {
   const { label } = getPLDateRange();
   document.getElementById('printHeader').textContent = `損益表　${label}`;
   window.print();
+}
+
+function headerPDFClick() {
+  const active = document.querySelector('.tab.active').id;
+  if (active === 'tab-history') exportHistoryPDF();
+  else exportPDF();
+}
+
+function exportHistoryPDF() {
+  const fy = parseInt(document.getElementById('filterYear').value);
+  const fm = document.getElementById('filterMonth').value;
+  const ft = document.getElementById('filterType').value;
+
+  let data = loadData().filter(e => new Date(e.date).getFullYear() === fy);
+  if (fm !== 'all') data = data.filter(e => new Date(e.date).getMonth()+1 === parseInt(fm));
+  if (ft !== 'all') data = data.filter(e => e.type === ft);
+
+  const periodLabel = fm === 'all' ? `${fy}年` : `${fy}年${fm}月`;
+  const typeLabel    = { income: '収入', expense: '支出' };
+
+  const area = document.getElementById('historyPrintArea');
+  const blocks = ['income', 'expense'].map(type => {
+    const entries = data.filter(e => e.type === type).sort((a,b) => b.date.localeCompare(a.date));
+    if (entries.length === 0) return '';
+    return `
+      <div class="history-print-header">${periodLabel}　${typeLabel[type]}</div>
+      ${buildJournalGroupsHTML(entries, true)}`;
+  }).filter(Boolean);
+
+  area.innerHTML = blocks.length
+    ? blocks.join('<div style="height:16px"></div>')
+    : '<div class="empty-msg">該当する記録がありません</div>';
+
+  document.body.classList.add('history-print');
+  window.print();
+  document.body.classList.remove('history-print');
 }
 
 // ============================================================
