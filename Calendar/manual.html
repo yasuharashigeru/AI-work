@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>使い方 - Calendar</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --border:  #D5D8DD;
+    --text:    #1A1D2E;
+    --text2:   #8A8F99;
+  }
+  html, body {
+    font-family: "メイリオ", Meiryo, sans-serif;
+    color: var(--text);
+    background: #FFFFFF;
+  }
+  body { padding: 20px; }
+  h1 { font-size: 17px; margin-bottom: 16px; }
+  section { margin-bottom: 18px; }
+  section:last-child { margin-bottom: 0; }
+  h2 {
+    font-size: 13px;
+    color: var(--text2);
+    margin-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 4px;
+  }
+  ul { list-style: none; }
+  li { font-size: 13px; line-height: 1.7; padding-left: 1em; text-indent: -1em; }
+  li::before { content: "・"; }
+  b { font-weight: bold; }
+</style>
+</head>
+<body>
+
+<h1>使い方</h1>
+
+<section>
+  <h2>単発の予定</h2>
+  <ul>
+    <li><b>追加</b>：日付マスの空欄をクリック</li>
+    <li><b>編集</b>：予定を長押しすると、名前・色・時刻・メモを編集できる画面が開く</li>
+    <li><b>移動</b>：予定をドラッグして別の日にドロップ、または予定をクリックして選択した状態で矢印キー（←→で1日、↑↓で1週間）</li>
+    <li><b>削除</b>：予定をクリックして選択すると出る「×」ボタン、または選択中にDeleteキー</li>
+    <li><b>色の変更</b>：編集画面の色の丸をクリック。丸を長押しするとその色自体を変更でき、5色すべて自由に変更可能</li>
+  </ul>
+</section>
+
+<section>
+  <h2>複数日の予定（帯）</h2>
+  <ul>
+    <li><b>作成</b>：日付マスの空欄を横にドラッグ</li>
+    <li><b>伸縮</b>：帯の左端・右端をドラッグ</li>
+    <li><b>移動</b>：帯の中央をドラッグ（期間の長さはそのまま）</li>
+    <li><b>重なり順の入れ替え</b>：帯を縦方向にドラッグすると、他の帯と表示順を入れ替えられる</li>
+    <li><b>編集・削除</b>：単発の予定と同様、長押しで編集画面（期間も直接編集可）、クリック選択→×またはDeleteで削除</li>
+    <li>1つの週には最大3本まで表示可能</li>
+  </ul>
+</section>
+
+<section>
+  <h2>表示・操作</h2>
+  <ul>
+    <li><b>スクロール</b>：マウスホイールで上下にスクロールすると月がめくれる</li>
+    <li><b>表示月数の切り替え</b>：右上の「1／2／3」ボタンで1度に表示する月数を１か月～３か月で切り替え</li>
+    <li><b>月移動</b>：見出し中央の「＜」「＞」で前後の月に1ヶ月ずつ移動。月表示（例：2026.7）をクリックすると、表示中の月の先頭に再スクロール（スクロール位置が少しずれたときの調整用。今日の月に戻るわけではない）</li>
+    <li><b>休日・平日の手動設定</b>：日付マスの空欄を右クリックすると「休日にする／平日にする／自動判定」を選べる</li>
+    <li><b>元に戻す・やり直す</b>：Ctrl+Z（元に戻す）／Ctrl+Shift+Z（やり直す）、最大20段階</li>
+  </ul>
+</section>
+
+<section>
+  <h2>データ</h2>
+  <ul>
+    <li>入力内容はすべて自動保存される（保存操作は不要）</li>
+    <li><b>バックアップの書き出し</b>：左上のメニュー（&#9776;）から「バックアップを書き出す」を選ぶと、保存先を選んでJSONファイルとして書き出せる（表示月数（1／2／3）の設定は含まれない）</li>
+    <li><b>バックアップの読み込み</b>：同じメニューの「バックアップを読み込む」から、書き出したJSONファイルを選ぶと現在のデータと入れ替わる（今のデータは上書きされるので確認ダイアログが出る。読み込み直後ならCtrl+Zで読み込み前の状態に戻せる。ダイアログは前回バックアップを開いた／保存したフォルダを最初に開く）</li>
+  </ul>
+</section>
+
+</body>
+</html>

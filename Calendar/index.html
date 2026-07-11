@@ -11,6 +11,7 @@
     --text:    #1A1D2E;
     --text2:   #8A8F99;
     --weekend: #F0F1F3;
+    --today:   #DADCE1;
   }
 
   html, body {
@@ -28,13 +29,18 @@
 
   /* ---- Month header ---- */
   #monthHeader {
-    display: flex;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
     align-items: center;
-    justify-content: center;
-    gap: 14px;
-    padding: 10px 0;
+    padding: 10px 16px;
     border-bottom: 1px solid var(--border);
     flex: 0 0 auto;
+  }
+  #monthNav {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    justify-content: center;
   }
   #monthLabel {
     font-size: 18px;
@@ -53,6 +59,68 @@
     line-height: 1;
   }
   .navBtn:hover { color: var(--text); }
+  #viewToggle {
+    display: flex;
+    gap: 2px;
+    justify-self: end;
+  }
+  .viewBtn {
+    background: none;
+    border: none;
+    font-size: 13px;
+    color: var(--text2);
+    cursor: pointer;
+    padding: 4px 8px;
+    line-height: 1;
+  }
+  .viewBtn:hover { color: var(--text); }
+  .viewBtn.active { color: var(--text); font-weight: bold; text-decoration: underline; }
+
+  /* ---- hamburger menu ---- */
+  #menuWrap { position: relative; justify-self: start; }
+  .menuDropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    margin-top: 4px;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.14);
+    padding: 4px;
+    min-width: 190px;
+    z-index: 550;
+  }
+  .menuDropdown.hidden { display: none; }
+  .menuItem {
+    display: block;
+    width: 100%;
+    text-align: left;
+    white-space: nowrap;
+    font: 13px "メイリオ", Meiryo, sans-serif;
+    padding: 8px 10px;
+    border: none;
+    background: none;
+    border-radius: 4px;
+    cursor: pointer;
+    color: var(--text);
+  }
+  .menuItem:hover { background: var(--weekend); }
+
+  /* ---- toast ---- */
+  .toast {
+    position: fixed;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--text);
+    color: #fff;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    z-index: 800;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+  }
 
   /* ---- Grid ---- */
   #gridScroll {
@@ -68,10 +136,20 @@
     overflow-anchor: none;
   }
   #gridScroll::-webkit-scrollbar { display: none; }
+  #gridInner {
+    /* Dragging to draw a band (or an event) would otherwise select the day
+       numbers/event text under the cursor like ordinary text; inputs/textareas
+       are exempt from an ancestor's user-select so typing is unaffected. */
+    user-select: none;
+  }
   .weekRow {
     display: flex;
     border-bottom: 1px solid var(--border);
     position: relative;
+    /* Band lanes are anchored to the bottom of the row; when the row gets short
+       (2/3-month view) whatever doesn't fit should just clip here instead of
+       floating over the row above/below. */
+    overflow: hidden;
   }
   .dayCell {
     flex: 1 1 0;
@@ -83,22 +161,30 @@
   .dayCell:last-child { border-right: none; }
   .dayCell.weekend { background: var(--weekend); }
   .dayNum {
+    position: relative;
+    z-index: 6; /* stay above bandBar (z-index 5) if a short row ever forces overlap */
     font-size: 12px;
     color: var(--text2);
   }
-  .dayCell.today .dayNum {
-    color: #fff;
-    background: var(--text);
-    border-radius: 50%;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 18px;
-    height: 18px;
+  .dayNum .monthPart {
+    font-size: 15px;
+    vertical-align: top;
+  }
+  .dayNum .monthNum {
+    font-weight: bold;
+  }
+  .dayCell.today {
+    /* Inset box-shadow rather than a real border: it paints as part of this cell's own
+       background layer, so it's naturally behind the day number/events (its own children,
+       always painted after a parent's background) and behind any band bar drawn over it
+       (bandBar is appended later in the DOM with a higher z-index) — no z-index needed. */
+    box-shadow: inset 0 0 0 6px var(--today);
   }
 
   /* ---- single-day events ---- */
   .evtRow {
+    position: relative;
+    z-index: 6; /* stay above bandBar (z-index 5) if a short row ever forces overlap */
     font-size: 11px;
     color: var(--text);
     padding: 1px 4px;
@@ -107,6 +193,42 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    cursor: pointer;
+  }
+  .evtRow.dragging { opacity: 0.4; }
+  .evtRow.ghostPreview { opacity: 0.75; pointer-events: none; }
+  .evtRow.selected, .bandBar.selected { outline: 2px solid var(--text); outline-offset: 1px; }
+  .evtDeleteBtn {
+    position: absolute;
+    top: 50%;
+    right: 2px;
+    transform: translateY(-50%);
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #fff;
+    color: var(--text2);
+    border: 1px solid var(--border);
+    font-size: 10px;
+    line-height: 12px;
+    text-align: center;
+    cursor: pointer;
+    z-index: 20;
+  }
+  .evtDeleteBtn:hover { background: var(--text); color: #fff; border-color: var(--text); }
+  .dayCell.dropHover { box-shadow: inset 0 0 0 2px var(--text2); }
+  .evtTooltip {
+    position: fixed;
+    z-index: 700;
+    background: #F8F9FA;
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 12px;
+    color: var(--text);
+    max-width: 260px;
+    word-break: break-word;
+    pointer-events: none;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
   }
   .quickInput {
     display: block;
@@ -125,7 +247,7 @@
   .bandBar {
     position: absolute;
     height: 16px;
-    border-radius: 8px;
+    border-radius: 4px;
     font-size: 10px;
     line-height: 16px;
     padding-left: 6px;
@@ -210,10 +332,19 @@
     margin-top: 10px;
   }
   .detailItem:first-child { border-top: none; margin-top: 0; padding-top: 0; }
-  .detailItem .evtText { font-size: 13px; margin-bottom: 6px; }
+  .detailItem input.evtText { font-size: 13px; margin-bottom: 6px; font-weight: 500; }
+  .rangeRow { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+  .rangeRow span { font-size: 12px; color: var(--text2); }
+  .rangeRow input[type="date"] {
+    font: 12px "メイリオ", Meiryo, sans-serif;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 4px 6px;
+  }
+  .rangeWarning { font-size: 11px; color: #C0392B; margin-bottom: 6px; display: none; }
   .swatchRow { display: flex; gap: 6px; margin-bottom: 6px; }
   .swatchRow .swatch.selected { outline: 2px solid var(--text); outline-offset: 1px; }
-  .detailItem input[type="time"], .detailItem textarea {
+  .detailItem input[type="time"], .detailItem input[type="text"], .detailItem textarea {
     display: block;
     width: 100%;
     font: 12px "メイリオ", Meiryo, sans-serif;
@@ -236,9 +367,24 @@
 <body>
 
 <div id="monthHeader">
-  <button class="navBtn" id="prevMonthBtn">&lt;</button>
-  <span id="monthLabel">----.--</span>
-  <button class="navBtn" id="nextMonthBtn">&gt;</button>
+  <div id="menuWrap">
+    <button class="navBtn" id="menuBtn">&#9776;</button>
+    <div id="menuDropdown" class="menuDropdown hidden">
+      <button class="menuItem" id="exportBackupBtn">バックアップを書き出す</button>
+      <button class="menuItem" id="importBackupBtn">バックアップを読み込む</button>
+      <button class="menuItem" id="openManualBtn">使い方</button>
+    </div>
+  </div>
+  <div id="monthNav">
+    <button class="navBtn" id="prevMonthBtn">&lt;</button>
+    <span id="monthLabel">----.--</span>
+    <button class="navBtn" id="nextMonthBtn">&gt;</button>
+  </div>
+  <div id="viewToggle">
+    <button class="viewBtn" data-months="1">1</button>
+    <button class="viewBtn" data-months="2">2</button>
+    <button class="viewBtn" data-months="3">3</button>
+  </div>
 </div>
 <div id="gridScroll">
   <div id="gridInner"></div>
@@ -269,8 +415,24 @@ function defaultData() {
     version: 1,
     palette: ['#FFF3B0', '#CDEFFB', '#FBD8D8', '#D8F5D8', '#E3E3E3'],
     singles: {},
-    bands: []
+    bands: [],
+    viewMonths: 1,
+    dayOverrides: {} // ds -> 'holiday' | 'weekday', overrides the natural weekend/JapaneseHolidays check
   };
+}
+
+// Bands created before the "stable lane" feature have no .lane field yet; assign one
+// using the old greedy algorithm once, so existing bands keep rendering.
+function migrateLanes() {
+  if (data.bands.some(b => b.lane === undefined)) {
+    const laneOf = assignLanes(data.bands);
+    data.bands.forEach(b => {
+      if (b.lane === undefined) {
+        const l = laneOf.get(b);
+        b.lane = (l === undefined || l === -1) ? 0 : l;
+      }
+    });
+  }
 }
 
 async function loadData() {
@@ -281,6 +443,8 @@ async function loadData() {
   } else {
     data = defaultData();
   }
+  if (!data.dayOverrides) data.dayOverrides = {};
+  migrateLanes();
 }
 
 function scheduleSave() {
@@ -288,6 +452,48 @@ function scheduleSave() {
   saveTimer = setTimeout(() => {
     fs.writeFileSync(dataPath, JSON.stringify(data, null, 2));
   }, 400);
+}
+
+// ---- undo/redo ----
+const HISTORY_LIMIT = 20;
+let undoStack = [];
+let redoStack = [];
+function snapshotData() {
+  return JSON.parse(JSON.stringify(data));
+}
+function pushUndoSnapshot() {
+  undoStack.push(snapshotData());
+  if (undoStack.length > HISTORY_LIMIT) undoStack.shift();
+  redoStack = [];
+}
+function refreshAllViews() {
+  if (selectedRef) {
+    const stillExists = selectedRef.kind === 'single'
+      ? getSingles(selectedRef.ds).some(e => e.id === selectedRef.id)
+      : data.bands.some(b => b.id === selectedRef.id);
+    if (!stillExists) selectedRef = null;
+  }
+  rerenderAllCells();
+  rerenderAllBands();
+  if (!detailOverlay.classList.contains('hidden')) renderDetailList();
+}
+function undo() {
+  if (undoStack.length === 0) return;
+  const cur = snapshotData();
+  data = undoStack.pop();
+  redoStack.push(cur);
+  if (redoStack.length > HISTORY_LIMIT) redoStack.shift();
+  scheduleSave();
+  refreshAllViews();
+}
+function redo() {
+  if (redoStack.length === 0) return;
+  const cur = snapshotData();
+  data = redoStack.pop();
+  undoStack.push(cur);
+  if (undoStack.length > HISTORY_LIMIT) undoStack.shift();
+  scheduleSave();
+  refreshAllViews();
 }
 
 function genId(prefix) {
@@ -298,22 +504,46 @@ function getSingles(ds) {
   return data.singles[ds] || [];
 }
 function addSingleEvent(ds, ev) {
+  pushUndoSnapshot();
   if (!data.singles[ds]) data.singles[ds] = [];
   data.singles[ds].push(ev);
   scheduleSave();
 }
 function updateSingleColor(ds, id, colorIdx) {
   const ev = getSingles(ds).find(e => e.id === id);
-  if (ev) { ev.color = colorIdx; scheduleSave(); refreshCell(ds); }
+  if (ev) { pushUndoSnapshot(); ev.color = colorIdx; scheduleSave(); refreshCell(ds); }
 }
 
 function bandsForDate(ds) {
   return data.bands.filter(b => b.start <= ds && ds <= b.end);
 }
 function deleteBand(id) {
+  pushUndoSnapshot();
+  hideHoverTooltip();
   data.bands = data.bands.filter(b => b.id !== id);
   scheduleSave();
   rerenderAllBands();
+}
+// Lowest lane (0..BAND_LANES-1) not occupied by any other band overlapping this date range;
+// -1 if all lanes are taken (shouldn't happen once bandWouldOverflow has already been checked).
+function assignFreeLane(candidateStart, candidateEnd, ignoreId) {
+  const usedLanes = new Set();
+  let d = new Date(candidateStart);
+  const end = new Date(candidateEnd);
+  while (d <= end) {
+    const ds = toDs(d);
+    data.bands.forEach(b => { if (b.id !== ignoreId && b.start <= ds && ds <= b.end) usedLanes.add(b.lane); });
+    d = addDays(d, 1);
+  }
+  for (let lane = 0; lane < BAND_LANES; lane++) if (!usedLanes.has(lane)) return lane;
+  return -1;
+}
+// Keeps a moved/resized band in its current lane if that lane is still free for the new
+// range (stable ordering); only hops to a different free lane if its own lane now conflicts.
+function resolveLaneForBand(band, newStart, newEnd) {
+  const conflict = data.bands.some(b => b.id !== band.id && b.lane === band.lane && b.start <= newEnd && b.end >= newStart);
+  if (!conflict) return band.lane;
+  return assignFreeLane(newStart, newEnd, band.id);
 }
 // Greedy lane assignment (earliest start first) capped at 3 lanes; returns Map(band -> laneIndex, -1 = overflow)
 function assignLanes(list) {
@@ -334,7 +564,7 @@ function assignLanes(list) {
   }
   return laneOf;
 }
-function bandWouldOverflow(candidate) {
+function bandWouldOverflow(candidate, ignoreId) {
   // A new band must be rejected if it would push any single date past 3 overlapping bands.
   // (Checked per-date directly, rather than via lane tie-break, so an existing committed
   // band can never be the one silently bumped out by the tie-break order.)
@@ -342,7 +572,7 @@ function bandWouldOverflow(candidate) {
   const end = new Date(candidate.end);
   while (d <= end) {
     const ds = toDs(d);
-    const count = data.bands.filter(b => b.start <= ds && ds <= b.end).length;
+    const count = data.bands.filter(b => b.id !== ignoreId && b.start <= ds && ds <= b.end).length;
     if (count >= BAND_LANES) return true;
     d = addDays(d, 1);
   }
@@ -382,12 +612,21 @@ function isWeekendOrHoliday(date) {
   if (day === 0 || day === 6) return true;
   return !!JapaneseHolidays.isHoliday(date);
 }
+// Right-click a cell to force it to render as holiday (gray) or weekday (white)
+// regardless of what the calendar would naturally compute.
+function cellIsWeekend(date) {
+  const override = data.dayOverrides[toDs(date)];
+  if (override === 'holiday') return true;
+  if (override === 'weekday') return false;
+  return isWeekendOrHoliday(date);
+}
 
 // ---- state ----
 const today = stripTime(new Date());
-const VISIBLE = 5;   // weeks visible in viewport
-const BUFFER = 5;    // weeks buffered above/below
-const CAP = VISIBLE + BUFFER * 2; // total resident week-rows
+const BUFFER = 5;       // weeks buffered above/below, fixed regardless of view density
+let monthViewCount = 1; // 1, 2, or 3 — how many months' worth of weeks are shown at once
+let VISIBLE = monthViewCount * 5; // weeks visible in viewport
+let CAP = VISIBLE + BUFFER * 2;   // total resident week-rows
 
 const gridScroll = document.getElementById('gridScroll');
 const gridInner = document.getElementById('gridInner');
@@ -397,6 +636,15 @@ let weekStarts = [];        // ascending array of Monday Dates, mirrors gridInne
 let currentMonthKey = null; // year*12 + month (0-indexed), the currently displayed header month
 let rowHeightCache = 0;
 let previewBand = null;     // ephemeral drag-preview band, not persisted
+let composingBand = null;   // just-drawn band awaiting its name; rendered but not yet in data.bands
+let activeBandDragId = null;  // id of the band currently hidden in favor of bandDragPreview (resize or move)
+let bandDragPreview = null;   // live opaque clone shown while dragging a band's edge or body
+const EDGE_HOTSPOT = 6;     // px from a bandBar's real start/end edge that grabs for resize
+let selectedRef = null;     // { kind: 'single'|'band', ds?, id } — click-selected event, Delete/arrow-key target
+let hoverTooltipEl = null;
+let hoverTooltipTimer = null;
+let moveGhostEl = null;
+let moveGhostDs = null;
 
 // ---- rendering ----
 function buildWeekRow(weekStart) {
@@ -407,16 +655,32 @@ function buildWeekRow(weekStart) {
     const cell = document.createElement('div');
     cell.className = 'dayCell';
     cell.dataset.date = toDs(date);
-    if (isWeekendOrHoliday(date)) cell.classList.add('weekend');
+    if (cellIsWeekend(date)) cell.classList.add('weekend');
     if (toDs(date) === toDs(today)) cell.classList.add('today');
 
     const num = document.createElement('div');
     num.className = 'dayNum';
-    num.textContent = date.getDate();
+    // In 2/3-month view the month boundary is otherwise hard to spot; label the 1st
+    // as "8/1" with the month enlarged. "Today" is now its own cell-level border rather
+    // than a circle around this text, so the two no longer compete for space.
+    if (monthViewCount > 1 && date.getDate() === 1) {
+      const monthSpan = document.createElement('span');
+      monthSpan.className = 'monthPart';
+      const monthNum = document.createElement('span');
+      monthNum.className = 'monthNum';
+      monthNum.textContent = String(date.getMonth() + 1);
+      monthSpan.appendChild(monthNum);
+      monthSpan.appendChild(document.createTextNode('/'));
+      num.appendChild(monthSpan);
+      num.appendChild(document.createTextNode('1'));
+    } else {
+      num.textContent = date.getDate();
+    }
     cell.appendChild(num);
 
     renderCellEvents(cell, cell.dataset.date);
     cell.addEventListener('mousedown', (e) => onCellMouseDown(e, cell.dataset.date));
+    cell.addEventListener('contextmenu', (e) => { e.preventDefault(); openWeekendOverridePrompt(cell, cell.dataset.date); });
 
     row.appendChild(cell);
   }
@@ -427,14 +691,54 @@ function findCellEl(ds) {
   return gridInner.querySelector(`.dayCell[data-date="${ds}"]`);
 }
 
+// ---- custom hover tooltip (replaces the native title attribute so it can be styled) ----
+function showHoverTooltip(target, text) {
+  clearTimeout(hoverTooltipTimer);
+  hoverTooltipTimer = setTimeout(() => {
+    hideHoverTooltip();
+    const tip = document.createElement('div');
+    tip.className = 'evtTooltip';
+    tip.textContent = text;
+    document.body.appendChild(tip);
+    const rect = target.getBoundingClientRect();
+    const left = Math.max(4, Math.min(rect.left, window.innerWidth - tip.offsetWidth - 8));
+    tip.style.left = left + 'px';
+    tip.style.top = (rect.bottom + 6) + 'px';
+    hoverTooltipEl = tip;
+  }, 350);
+}
+function hideHoverTooltip() {
+  clearTimeout(hoverTooltipTimer);
+  if (hoverTooltipEl) { hoverTooltipEl.remove(); hoverTooltipEl = null; }
+}
+
+function isSelected(kind, id) {
+  return !!selectedRef && selectedRef.kind === kind && selectedRef.id === id;
+}
+
+// Small "x" badge shown on a selected event/band so deletion doesn't require the Delete key.
+function buildDeleteBadge(onDelete) {
+  const btn = document.createElement('div');
+  btn.className = 'evtDeleteBtn';
+  btn.textContent = '×';
+  btn.addEventListener('mousedown', (e) => e.stopPropagation());
+  btn.addEventListener('click', (e) => { e.stopPropagation(); onDelete(); });
+  return btn;
+}
+
 function renderCellEvents(cell, ds) {
   cell.querySelectorAll('.evtRow').forEach(n => n.remove());
   for (const ev of getSingles(ds)) {
     const row = document.createElement('div');
-    row.className = 'evtRow';
+    const selected = isSelected('single', ev.id);
+    row.className = 'evtRow' + (selected ? ' selected' : '');
     row.style.background = data.palette[ev.color];
     row.textContent = ev.text;
     row.dataset.id = ev.id;
+    row.addEventListener('mouseenter', () => { if (gesture.mode === 'idle') showHoverTooltip(row, ev.text); });
+    row.addEventListener('mouseleave', hideHoverTooltip);
+    row.addEventListener('mousedown', (e) => onEventRowMouseDown(e, ds, ev.id, row));
+    if (selected) row.appendChild(buildDeleteBadge(() => { deleteSingleEvent(ds, ev.id); clearSelection(); }));
     cell.appendChild(row);
   }
 }
@@ -457,36 +761,66 @@ function renderBandsForRow(rowEl, weekStart) {
   rowEl.querySelectorAll('.bandBar').forEach(n => n.remove());
   const weekStartDs = toDs(weekStart);
   const weekEndDs = toDs(addDays(weekStart, 6));
-  let intersecting = data.bands.filter(b => b.start <= weekEndDs && b.end >= weekStartDs);
-  if (previewBand && previewBand.start <= weekEndDs && previewBand.end >= weekStartDs) {
-    intersecting = intersecting.concat([previewBand]);
-  }
+  let intersecting = data.bands.filter(b => b.id !== activeBandDragId && b.start <= weekEndDs && b.end >= weekStartDs);
+  [previewBand, composingBand, bandDragPreview].forEach(b => {
+    if (b && b.start <= weekEndDs && b.end >= weekStartDs) intersecting = intersecting.concat([b]);
+  });
   if (intersecting.length === 0) return;
-  const laneOf = assignLanes(intersecting);
   const cells = rowEl.children;
   const rowH = rowEl.clientHeight || rowHeightCache;
-  const areaTop = rowH - BAND_LANES * (BAND_H + BAND_GAP);
+  // Clamp so lanes never start above the row's own top (they used to, on short rows in
+  // 2/3-month view, and floated over the day number/events above or the row below).
+  const areaTop = Math.max(0, rowH - BAND_LANES * (BAND_H + BAND_GAP));
   for (const band of intersecting) {
-    const lane = laneOf.get(band);
-    if (lane === undefined || lane === -1) continue;
+    const lane = band.lane;
+    if (lane === undefined || lane < 0 || lane >= BAND_LANES) continue;
     const clipStart = band.start > weekStartDs ? band.start : weekStartDs;
     const clipEnd = band.end < weekEndDs ? band.end : weekEndDs;
     const startIdx = dayIndexInWeek(weekStart, clipStart);
     const endIdx = dayIndexInWeek(weekStart, clipEnd);
     const left = cells[startIdx].offsetLeft;
     const right = cells[endIdx].offsetLeft + cells[endIdx].offsetWidth;
+    const ephemeral = band === previewBand || band === composingBand || band === bandDragPreview;
     const bar = document.createElement('div');
-    bar.className = 'bandBar' + (band === previewBand ? ' ghost' : '');
+    bar.className = 'bandBar'
+      + (band === previewBand ? ' ghost' : '')
+      + (!ephemeral && isSelected('band', band.id) ? ' selected' : '');
     bar.dataset.id = band.id;
     bar.style.left = left + 'px';
     bar.style.width = (right - left) + 'px';
     bar.style.top = (areaTop + lane * (BAND_H + BAND_GAP)) + 'px';
     bar.style.background = data.palette[band.color];
     if (clipStart === band.start) bar.textContent = band.text;
-    if (band !== previewBand) {
+    if (!ephemeral && isSelected('band', band.id) && clipEnd === band.end) {
+      bar.appendChild(buildDeleteBadge(() => { deleteBand(band.id); clearSelection(); }));
+    }
+    if (ephemeral) {
+      // The resize-preview bar is rebuilt from scratch every frame of the drag (no listener
+      // of its own survives that), so its cursor has to be re-asserted directly on it each
+      // time too — an ancestor's cursor style never wins over this element's own CSS class
+      // once the pointer is actually over it.
+      if (gesture.mode === 'band-resize') bar.style.cursor = 'ew-resize';
+    } else {
+      const isStartEdge = clipStart === band.start;
+      const isEndEdge = clipEnd === band.end;
+      bar.addEventListener('mouseenter', () => { if (gesture.mode === 'idle') showHoverTooltip(bar, band.text); });
+      bar.addEventListener('mouseleave', hideHoverTooltip);
+      bar.addEventListener('mousemove', (e) => {
+        if (gesture.mode !== 'idle') return;
+        const nearStart = isStartEdge && e.offsetX <= EDGE_HOTSPOT;
+        const nearEnd = isEndEdge && e.offsetX >= bar.offsetWidth - EDGE_HOTSPOT;
+        bar.style.cursor = (nearStart || nearEnd) ? 'ew-resize' : 'pointer';
+      });
       bar.addEventListener('mousedown', (e) => {
+        const nearStart = isStartEdge && e.offsetX <= EDGE_HOTSPOT;
+        const nearEnd = isEndEdge && e.offsetX >= bar.offsetWidth - EDGE_HOTSPOT;
+        if (nearStart || nearEnd) {
+          onBandEdgeMouseDown(e, band, nearStart ? 'start' : 'end');
+          return;
+        }
+        e.stopPropagation();
         const ds = cellDateAtPoint(e.clientX, e.clientY) || band.start;
-        onCellMouseDown(e, ds);
+        beginGesture(e, ds, { kind: 'band', id: band.id });
       });
     }
     rowEl.appendChild(bar);
@@ -547,8 +881,33 @@ function openColorChoicePrompt(cell, lastColorIdx, onResolve) {
   setTimeout(() => document.addEventListener('mousedown', outsideCloser, { once: true }), 0);
 }
 
+// ---- right-click a cell to force holiday/weekday shading ----
+function openWeekendOverridePrompt(cell, ds) {
+  closeFloating();
+  const pop = document.createElement('div');
+  pop.className = 'floatingPopover choicePrompt';
+  const makeBtn = (label, fn) => {
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.addEventListener('click', (e) => { e.stopPropagation(); fn(); closeFloating(); });
+    return b;
+  };
+  pop.appendChild(makeBtn('休日にする', () => setDayOverride(ds, 'holiday')));
+  pop.appendChild(makeBtn('平日にする', () => setDayOverride(ds, 'weekday')));
+  pop.appendChild(makeBtn('自動判定', () => setDayOverride(ds, null)));
+  positionPopover(pop, cell.getBoundingClientRect());
+  setTimeout(() => document.addEventListener('mousedown', outsideCloser, { once: true }), 0);
+}
+function setDayOverride(ds, mode) {
+  pushUndoSnapshot();
+  if (mode) data.dayOverrides[ds] = mode;
+  else delete data.dayOverrides[ds];
+  scheduleSave();
+  const cell = findCellEl(ds);
+  if (cell) cell.classList.toggle('weekend', cellIsWeekend(new Date(ds)));
+}
+
 // ---- palette slot customization (long-press a swatch to recolor its slot globally) ----
-const LOCKED_SLOT = 4; // fixed gray slot, mirrors weekend/holiday shading, not user-recolorable
 function makeSwatchInteractive(swatchEl, slotIndex, onSelect) {
   let timer = null;
   let mode = 'idle';
@@ -557,7 +916,7 @@ function makeSwatchInteractive(swatchEl, slotIndex, onSelect) {
     mode = 'pending';
     timer = setTimeout(() => {
       mode = 'long';
-      if (slotIndex !== LOCKED_SLOT) openSlotColorPicker(slotIndex);
+      openSlotColorPicker(slotIndex);
     }, LONG_PRESS_MS);
   });
   swatchEl.addEventListener('mouseup', (e) => {
@@ -569,7 +928,10 @@ function makeSwatchInteractive(swatchEl, slotIndex, onSelect) {
   swatchEl.addEventListener('mouseleave', () => { clearTimeout(timer); mode = 'idle'; });
 }
 function rerenderAllCells() {
-  gridInner.querySelectorAll('.dayCell').forEach(cell => renderCellEvents(cell, cell.dataset.date));
+  gridInner.querySelectorAll('.dayCell').forEach(cell => {
+    cell.classList.toggle('weekend', cellIsWeekend(new Date(cell.dataset.date)));
+    renderCellEvents(cell, cell.dataset.date);
+  });
 }
 function openSlotColorPicker(slotIndex) {
   const input = document.createElement('input');
@@ -579,11 +941,12 @@ function openSlotColorPicker(slotIndex) {
   input.style.left = '-9999px';
   document.body.appendChild(input);
   input.addEventListener('change', () => {
+    pushUndoSnapshot();
     data.palette[slotIndex] = input.value;
     scheduleSave();
     rerenderAllCells();
     rerenderAllBands();
-    if (!detailOverlay.classList.contains('hidden')) renderDetailList(detailDateLabel.textContent);
+    if (!detailOverlay.classList.contains('hidden')) renderDetailList();
   });
   input.addEventListener('blur', () => setTimeout(() => input.remove(), 200));
   input.click();
@@ -611,7 +974,9 @@ function openQuickInput(ds) {
     if (e.key === 'Enter') finish(true);
     else if (e.key === 'Escape') finish(false);
   });
-  input.addEventListener('blur', () => finish(true));
+  // Clicking elsewhere should cancel, not silently commit whatever was typed so far —
+  // only Enter commits.
+  input.addEventListener('blur', () => finish(false));
 }
 
 function handleNewSingleText(ds, text) {
@@ -632,27 +997,96 @@ function handleNewSingleText(ds, text) {
   }
 }
 
+// ---- selection (click an event to highlight it; Delete/arrow keys act on it) ----
+function selectEvent(ref) {
+  closeFloating();
+  selectedRef = ref;
+  rerenderAllCells();
+  rerenderAllBands();
+}
+function clearSelection() {
+  if (!selectedRef) return;
+  selectedRef = null;
+  rerenderAllCells();
+  rerenderAllBands();
+}
+
 // ---- mouse gesture state machine ----
 const LONG_PRESS_MS = 450;
 const MOVE_THRESHOLD = 4;
 let gesture = { mode: 'idle' };
 
+// Geometry-based instead of elementFromPoint+closest: an ephemeral ghost/preview bar
+// or chip is often exactly what's under the cursor during a drag, and (for bandBar)
+// isn't even nested inside a .dayCell, so hit-testing the DOM missed hovered dates in
+// the middle of a drag (this is what made shrinking a band via its edge unreliable —
+// the resize preview bar itself kept absorbing the hit test).
 function cellDateAtPoint(x, y) {
-  const el = document.elementFromPoint(x, y);
-  const cell = el && el.closest('.dayCell');
-  return cell ? cell.dataset.date : null;
+  if (!rowHeightCache) return null;
+  const gridRect = gridInner.getBoundingClientRect();
+  const rowIdx = Math.floor((y - gridRect.top) / rowHeightCache);
+  if (rowIdx < 0 || rowIdx >= weekStarts.length) return null;
+  const rowEl = gridInner.children[rowIdx];
+  if (!rowEl) return null;
+  const rowRect = rowEl.getBoundingClientRect();
+  const cellWidth = rowRect.width / 7;
+  if (cellWidth <= 0) return null;
+  let dayIdx = Math.floor((x - rowRect.left) / cellWidth);
+  dayIdx = Math.max(0, Math.min(6, dayIdx));
+  return toDs(addDays(weekStarts[rowIdx], dayIdx));
 }
 
-function onCellMouseDown(e, ds) {
-  if (e.button !== 0 || e.target.tagName === 'INPUT') return;
+function beginGesture(e, ds, extra) {
   clearTimeout(gesture.timer);
-  gesture = { mode: 'pending', startDs: ds, startX: e.clientX, startY: e.clientY, timer: null };
+  hideHoverTooltip();
+  gesture = Object.assign({ mode: 'pending', startDs: ds, startX: e.clientX, startY: e.clientY, timer: null }, extra || {});
   gesture.timer = setTimeout(() => {
     if (gesture.mode === 'pending') {
       gesture.mode = 'long-press';
-      onLongPressFire(gesture.startDs);
+      // Only an existing single/band event has anything to show — a long-press on
+      // empty cell background is a no-op (new events only come from a plain click).
+      if (gesture.kind === 'single') openDetailModal({ kind: 'single', ds: gesture.startDs, id: gesture.id });
+      else if (gesture.kind === 'band') openDetailModal({ kind: 'band', id: gesture.id });
     }
   }, LONG_PRESS_MS);
+  document.addEventListener('mousemove', onDocMouseMove);
+  document.addEventListener('mouseup', onDocMouseUp);
+}
+// If a name input is still open (quick-add or the band-name popover), a click on empty
+// space should only dismiss it — not also immediately start a new quick-add/band-drag at
+// the click site. That would need a second, separate click.
+function dismissOpenInputIfAny() {
+  const qi = document.querySelector('.quickInput');
+  if (qi) { qi.blur(); return true; }
+  const bi = document.querySelector('.bandInputPopover input');
+  if (bi) { bi.blur(); return true; }
+  return false;
+}
+function onCellMouseDown(e, ds) {
+  if (e.button !== 0 || e.target.tagName === 'INPUT') return;
+  if (dismissOpenInputIfAny()) return;
+  beginGesture(e, ds);
+}
+function onEventRowMouseDown(e, ds, id, rowEl) {
+  if (e.button !== 0) return;
+  e.stopPropagation();
+  beginGesture(e, ds, { kind: 'single', id, eventRow: rowEl });
+}
+function onBandEdgeMouseDown(e, band, edge) {
+  if (e.button !== 0) return;
+  e.stopPropagation();
+  e.preventDefault();
+  clearTimeout(gesture.timer);
+  hideHoverTooltip();
+  activeBandDragId = band.id;
+  bandDragPreview = { id: band.id, start: band.start, end: band.end, color: band.color, text: band.text, lane: band.lane };
+  gesture = { mode: 'band-resize', edge, origStart: band.start, origEnd: band.end };
+  // Fixed on <body> rather than left to the per-element hover listener: rerenderAllBands()
+  // rebuilds the bar every frame during the drag, and a freshly-built ephemeral bar has no
+  // cursor style of its own, so the icon would otherwise flip back to the default arrow
+  // the instant the preview re-renders.
+  document.body.style.cursor = 'ew-resize';
+  rerenderAllBands();
   document.addEventListener('mousemove', onDocMouseMove);
   document.addEventListener('mouseup', onDocMouseUp);
 }
@@ -661,51 +1095,276 @@ function onDocMouseMove(e) {
   const dx = e.clientX - gesture.startX, dy = e.clientY - gesture.startY;
   if (gesture.mode === 'pending' && Math.hypot(dx, dy) > MOVE_THRESHOLD) {
     clearTimeout(gesture.timer);
-    gesture.mode = 'band-drag';
-    startBandPreview(gesture.startDs);
+    if (gesture.kind === 'single') {
+      gesture.mode = 'single-move-drag';
+      startSingleMovePreview();
+    } else if (gesture.kind === 'band') {
+      // A mostly-vertical drag reorders the band's lane; a mostly-horizontal one
+      // slides its dates. Decided once, at the moment the threshold is crossed.
+      if (Math.abs(dy) > Math.abs(dx)) {
+        gesture.mode = 'band-lane-drag';
+      } else {
+        gesture.mode = 'band-move-drag';
+        startBandMovePreview();
+      }
+    } else {
+      gesture.mode = 'band-drag';
+      startBandPreview(gesture.startDs);
+    }
   }
   if (gesture.mode === 'band-drag') {
     const hoverDs = cellDateAtPoint(e.clientX, e.clientY);
     if (hoverDs) updateBandPreview(gesture.startDs, hoverDs);
+  } else if (gesture.mode === 'single-move-drag') {
+    updateSingleMovePreview(cellDateAtPoint(e.clientX, e.clientY));
+  } else if (gesture.mode === 'band-move-drag') {
+    const hoverDs = cellDateAtPoint(e.clientX, e.clientY);
+    if (hoverDs) updateBandMovePreview(hoverDs);
+  } else if (gesture.mode === 'band-resize') {
+    const hoverDs = cellDateAtPoint(e.clientX, e.clientY);
+    if (hoverDs) updateBandResizePreview(hoverDs);
+  } else if (gesture.mode === 'band-lane-drag') {
+    updateBandLaneDrag(e);
   }
 }
 function onDocMouseUp(e) {
   clearTimeout(gesture.timer);
   const endDs = cellDateAtPoint(e.clientX, e.clientY) || gesture.startDs;
   if (gesture.mode === 'pending') {
-    openQuickInput(gesture.startDs);
+    if (gesture.kind === 'single') selectEvent({ kind: 'single', ds: gesture.startDs, id: gesture.id });
+    else if (gesture.kind === 'band') selectEvent({ kind: 'band', id: gesture.id });
+    else { clearSelection(); openQuickInput(gesture.startDs); }
   } else if (gesture.mode === 'band-drag') {
     finishBandDrag(gesture.startDs, endDs);
+  } else if (gesture.mode === 'single-move-drag') {
+    finishSingleMove(endDs);
+  } else if (gesture.mode === 'band-move-drag') {
+    finishBandMove();
+  } else if (gesture.mode === 'band-resize') {
+    finishBandResize();
+  } else if (gesture.mode === 'band-lane-drag') {
+    finishBandLaneDrag(e);
   }
   gesture = { mode: 'idle' };
   document.removeEventListener('mousemove', onDocMouseMove);
   document.removeEventListener('mouseup', onDocMouseUp);
 }
-function onLongPressFire(ds) {
-  if (getSingles(ds).length > 0 || bandsForDate(ds).length > 0) openDetailModal(ds);
+
+// ---- single-day event drag-to-move ----
+function startSingleMovePreview() {
+  if (gesture.eventRow) gesture.eventRow.classList.add('dragging');
+}
+function updateSingleMovePreview(hoverDs) {
+  if (hoverDs === moveGhostDs) return;
+  gridInner.querySelectorAll('.dayCell.dropHover').forEach(c => c.classList.remove('dropHover'));
+  if (moveGhostEl) { moveGhostEl.remove(); moveGhostEl = null; }
+  moveGhostDs = hoverDs;
+  const cell = hoverDs && findCellEl(hoverDs);
+  if (!cell) return;
+  cell.classList.add('dropHover');
+  const ev = getSingles(gesture.startDs).find(e => e.id === gesture.id);
+  if (!ev) return;
+  const ghost = document.createElement('div');
+  ghost.className = 'evtRow ghostPreview';
+  ghost.style.background = data.palette[ev.color];
+  ghost.textContent = ev.text;
+  cell.appendChild(ghost);
+  moveGhostEl = ghost;
+}
+function finishSingleMove(targetDs) {
+  if (gesture.eventRow) gesture.eventRow.classList.remove('dragging');
+  gridInner.querySelectorAll('.dayCell.dropHover').forEach(c => c.classList.remove('dropHover'));
+  if (moveGhostEl) { moveGhostEl.remove(); moveGhostEl = null; }
+  moveGhostDs = null;
+  const sourceDs = gesture.startDs;
+  const id = gesture.id;
+  if (!targetDs || targetDs === sourceDs) return;
+  const list = getSingles(sourceDs);
+  const idx = list.findIndex(ev => ev.id === id);
+  if (idx === -1) return;
+  pushUndoSnapshot();
+  const [ev] = list.splice(idx, 1);
+  if (list.length === 0) delete data.singles[sourceDs];
+  if (!data.singles[targetDs]) data.singles[targetDs] = [];
+  data.singles[targetDs].push(ev);
+  if (selectedRef && selectedRef.kind === 'single' && selectedRef.id === id) selectedRef = { kind: 'single', ds: targetDs, id };
+  scheduleSave();
+  refreshCell(sourceDs);
+  refreshCell(targetDs);
+}
+
+// ---- band edge drag-to-resize ----
+function updateBandResizePreview(hoverDs) {
+  if (!bandDragPreview) return;
+  if (gesture.edge === 'start') {
+    bandDragPreview.start = hoverDs <= gesture.origEnd ? hoverDs : gesture.origEnd;
+    bandDragPreview.end = gesture.origEnd;
+  } else {
+    bandDragPreview.end = hoverDs >= gesture.origStart ? hoverDs : gesture.origStart;
+    bandDragPreview.start = gesture.origStart;
+  }
+  rerenderAllBands();
+}
+function finishBandResize() {
+  document.body.style.cursor = '';
+  const band = data.bands.find(b => b.id === activeBandDragId);
+  const newStart = bandDragPreview && bandDragPreview.start;
+  const newEnd = bandDragPreview && bandDragPreview.end;
+  activeBandDragId = null;
+  bandDragPreview = null;
+  if (!band || !newStart || (newStart === band.start && newEnd === band.end)) {
+    rerenderAllBands();
+    return;
+  }
+  if (bandWouldOverflow({ start: newStart, end: newEnd }, band.id)) {
+    rerenderAllBands();
+    showInlineWarning(newStart, 'この週は帯を3本までしか追加できません');
+    return;
+  }
+  pushUndoSnapshot();
+  band.start = newStart;
+  band.end = newEnd;
+  band.lane = resolveLaneForBand(band, newStart, newEnd);
+  scheduleSave();
+  rerenderAllBands();
+}
+
+// ---- band whole-body drag-to-move (slides both start/end, keeps the duration) ----
+function startBandMovePreview() {
+  const band = data.bands.find(b => b.id === gesture.id);
+  if (!band) return;
+  activeBandDragId = band.id;
+  bandDragPreview = { id: band.id, start: band.start, end: band.end, color: band.color, text: band.text, lane: band.lane };
+  rerenderAllBands();
+}
+function updateBandMovePreview(hoverDs) {
+  if (!bandDragPreview) return;
+  const band = data.bands.find(b => b.id === activeBandDragId);
+  if (!band) return;
+  const deltaDays = Math.round((new Date(hoverDs) - new Date(gesture.startDs)) / 86400000);
+  bandDragPreview.start = toDs(addDays(new Date(band.start), deltaDays));
+  bandDragPreview.end = toDs(addDays(new Date(band.end), deltaDays));
+  rerenderAllBands();
+}
+function finishBandMove() {
+  const band = data.bands.find(b => b.id === activeBandDragId);
+  const newStart = bandDragPreview && bandDragPreview.start;
+  const newEnd = bandDragPreview && bandDragPreview.end;
+  activeBandDragId = null;
+  bandDragPreview = null;
+  if (!band || !newStart || (newStart === band.start && newEnd === band.end)) {
+    rerenderAllBands();
+    return;
+  }
+  if (bandWouldOverflow({ start: newStart, end: newEnd }, band.id)) {
+    rerenderAllBands();
+    showInlineWarning(newStart, 'この週は帯を3本までしか追加できません');
+    return;
+  }
+  pushUndoSnapshot();
+  band.start = newStart;
+  band.end = newEnd;
+  band.lane = resolveLaneForBand(band, newStart, newEnd);
+  scheduleSave();
+  rerenderAllBands();
+}
+
+// ---- band vertical drag-to-swap-lane (reorder which band renders on top) ----
+function updateBandLaneDrag(e) {
+  const dy = e.clientY - gesture.startY;
+  document.querySelectorAll(`.bandBar[data-id="${gesture.id}"]`).forEach(bar => {
+    bar.style.transform = `translateY(${dy}px)`;
+    bar.style.zIndex = 50;
+  });
+}
+function finishBandLaneDrag(e) {
+  const dy = e.clientY - gesture.startY;
+  document.querySelectorAll(`.bandBar[data-id="${gesture.id}"]`).forEach(bar => {
+    bar.style.transform = '';
+    bar.style.zIndex = '';
+  });
+  const band = data.bands.find(b => b.id === gesture.id);
+  if (!band) return;
+  const step = Math.round(dy / (BAND_H + BAND_GAP));
+  if (step === 0) return;
+  const targetLane = Math.max(0, Math.min(BAND_LANES - 1, band.lane + step));
+  if (targetLane === band.lane) return;
+  const swapWith = data.bands.find(b => b.id !== band.id && b.lane === targetLane && b.start <= band.end && b.end >= band.start);
+  pushUndoSnapshot();
+  if (swapWith) swapWith.lane = band.lane;
+  band.lane = targetLane;
+  scheduleSave();
+  rerenderAllBands();
+}
+
+// ---- keyboard actions on the selected event ----
+function moveSelectedByDays(deltaDays) {
+  if (!selectedRef) return;
+  if (selectedRef.kind === 'single') {
+    const sourceDs = selectedRef.ds;
+    const targetDs = toDs(addDays(new Date(sourceDs), deltaDays));
+    const list = getSingles(sourceDs);
+    const idx = list.findIndex(ev => ev.id === selectedRef.id);
+    if (idx === -1) return;
+    pushUndoSnapshot();
+    const [ev] = list.splice(idx, 1);
+    if (list.length === 0) delete data.singles[sourceDs];
+    if (!data.singles[targetDs]) data.singles[targetDs] = [];
+    data.singles[targetDs].push(ev);
+    selectedRef = { kind: 'single', ds: targetDs, id: ev.id };
+    scheduleSave();
+    refreshCell(sourceDs);
+    refreshCell(targetDs);
+  } else {
+    const band = data.bands.find(b => b.id === selectedRef.id);
+    if (!band) return;
+    const newStart = toDs(addDays(new Date(band.start), deltaDays));
+    const newEnd = toDs(addDays(new Date(band.end), deltaDays));
+    if (bandWouldOverflow({ start: newStart, end: newEnd }, band.id)) {
+      showInlineWarning(newStart, 'この週は帯を3本までしか追加できません');
+      return;
+    }
+    pushUndoSnapshot();
+    band.start = newStart;
+    band.end = newEnd;
+    band.lane = resolveLaneForBand(band, newStart, newEnd);
+    scheduleSave();
+    rerenderAllBands();
+  }
+}
+function deleteSelected() {
+  if (!selectedRef) return;
+  if (selectedRef.kind === 'single') deleteSingleEvent(selectedRef.ds, selectedRef.id);
+  else deleteBand(selectedRef.id);
+  selectedRef = null;
 }
 
 // ---- band drag creation ----
 function startBandPreview(ds) {
-  previewBand = { start: ds, end: ds, color: 1, text: '' };
+  previewBand = { start: ds, end: ds, color: 1, text: '', lane: assignFreeLane(ds, ds) };
   rerenderAllBands();
 }
 function updateBandPreview(startDs, hoverDs) {
   if (!previewBand) return;
   previewBand.start = startDs < hoverDs ? startDs : hoverDs;
   previewBand.end = startDs < hoverDs ? hoverDs : startDs;
+  previewBand.lane = assignFreeLane(previewBand.start, previewBand.end);
   rerenderAllBands();
 }
 function finishBandDrag(startDs, endDsRaw) {
   previewBand = null;
-  rerenderAllBands();
   const start = startDs < endDsRaw ? startDs : endDsRaw;
   const end = startDs < endDsRaw ? endDsRaw : startDs;
-  const candidate = { id: genId('b'), text: '', start, end, color: 1, time: '', memo: '' };
+  const candidate = { id: genId('b'), text: '', start, end, color: 1, time: '', memo: '', lane: assignFreeLane(start, end) };
   if (bandWouldOverflow(candidate)) {
+    rerenderAllBands();
     showInlineWarning(start, 'この週は帯を3本までしか追加できません');
     return;
   }
+  // Keep the drawn bar visible (as composingBand) while the name popover is open,
+  // instead of disappearing until commit.
+  composingBand = candidate;
+  rerenderAllBands();
   openBandTextInput(candidate);
 }
 function showInlineWarning(ds, msg) {
@@ -736,145 +1395,291 @@ function openBandTextInput(candidate) {
     done = true;
     const text = input.value.trim();
     closeFloating();
+    composingBand = null;
     if (commit && text) {
+      pushUndoSnapshot();
       candidate.text = text;
       data.bands.push(candidate);
       scheduleSave();
-      rerenderAllBands();
     }
+    rerenderAllBands();
   }
   input.addEventListener('mousedown', (e) => e.stopPropagation());
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') finish(true);
     else if (e.key === 'Escape') finish(false);
   });
-  input.addEventListener('blur', () => finish(true));
+  // Clicking elsewhere should cancel the band, not silently commit it — only Enter commits.
+  input.addEventListener('blur', () => finish(false));
   setTimeout(() => document.addEventListener('mousedown', outsideCloser, { once: true }), 0);
 }
 
-// ---- detail modal (long-press a populated cell) ----
+// ---- detail modal: shows only the one event that was long-pressed ----
 const detailOverlay = document.getElementById('detailOverlay');
 const detailDateLabel = document.getElementById('detailDateLabel');
 const detailList = document.getElementById('detailList');
 document.getElementById('detailCloseBtn').addEventListener('click', closeDetailModal);
 detailOverlay.addEventListener('mousedown', (e) => { if (e.target === detailOverlay) closeDetailModal(); });
 
-function openDetailModal(ds) {
+// ---- hamburger menu: backup export + manual ----
+function showToast(msg) {
+  const t = document.createElement('div');
+  t.className = 'toast';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 2200);
+}
+async function exportBackup() {
+  // viewMonths is a display preference, not calendar data — leave it out of backups.
+  const { viewMonths, ...exportData } = data;
+  const json = JSON.stringify(exportData, null, 2);
+  const result = await ipcRenderer.invoke('export-backup', json);
+  if (result && result.ok) showToast('バックアップを書き出しました');
+}
+async function importBackup() {
+  if (!confirm('現在のデータをすべて上書きします。よろしいですか？')) return;
+  const result = await ipcRenderer.invoke('import-backup');
+  if (!result || !result.ok) {
+    if (result && result.error === 'invalid') showToast('読み込みに失敗しました（正しいバックアップファイルではありません）');
+    return;
+  }
+  let parsed;
+  try { parsed = JSON.parse(result.content); }
+  catch (e) { showToast('読み込みに失敗しました（正しいバックアップファイルではありません）'); return; }
+
+  pushUndoSnapshot();
+  data = parsed;
+  data.viewMonths = monthViewCount; // not part of a backup — keep whatever's currently displayed
+  if (!data.dayOverrides) data.dayOverrides = {};
+  migrateLanes();
+  selectedRef = null;
+  closeDetailModal();
+  scheduleSave();
+  initWeeks(today.getFullYear(), today.getMonth());
+  showToast('バックアップを読み込みました');
+}
+const menuDropdown = document.getElementById('menuDropdown');
+document.getElementById('menuBtn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  menuDropdown.classList.toggle('hidden');
+});
+document.addEventListener('mousedown', (e) => {
+  if (!menuDropdown.classList.contains('hidden') && !e.target.closest('#menuWrap')) {
+    menuDropdown.classList.add('hidden');
+  }
+});
+document.getElementById('exportBackupBtn').addEventListener('click', () => {
+  menuDropdown.classList.add('hidden');
+  exportBackup();
+});
+document.getElementById('importBackupBtn').addEventListener('click', () => {
+  menuDropdown.classList.add('hidden');
+  importBackup();
+});
+document.getElementById('openManualBtn').addEventListener('click', () => {
+  menuDropdown.classList.add('hidden');
+  ipcRenderer.invoke('open-manual-window');
+});
+
+let currentModalTarget = null; // { kind: 'single', ds, id } | { kind: 'band', id }
+
+function resolveModalItem(target) {
+  if (!target) return null;
+  if (target.kind === 'single') {
+    const ev = getSingles(target.ds).find(e => e.id === target.id);
+    return ev ? { kind: 'single', ds: target.ds, ev } : null;
+  }
+  const band = data.bands.find(b => b.id === target.id);
+  return band ? { kind: 'band', band } : null;
+}
+
+function openDetailModal(target) {
   closeFloating();
-  detailDateLabel.textContent = ds;
-  renderDetailList(ds);
+  if (!resolveModalItem(target)) return;
+  currentModalTarget = target;
+  renderDetailList();
   detailOverlay.classList.remove('hidden');
 }
 function closeDetailModal() {
   detailOverlay.classList.add('hidden');
+  currentModalTarget = null;
 }
 function deleteSingleEvent(ds, id) {
+  pushUndoSnapshot();
+  hideHoverTooltip();
   data.singles[ds] = getSingles(ds).filter(e => e.id !== id);
   if (data.singles[ds].length === 0) delete data.singles[ds];
   scheduleSave();
   refreshCell(ds);
 }
-function renderDetailList(ds) {
+function renderDetailList() {
+  const resolved = resolveModalItem(currentModalTarget);
+  if (!resolved) { closeDetailModal(); return; }
   detailList.innerHTML = '';
-  getSingles(ds).forEach(ev => {
-    const item = document.createElement('div');
-    item.className = 'detailItem';
+  if (resolved.kind === 'single') {
+    detailDateLabel.textContent = resolved.ds;
+    detailList.appendChild(buildSingleDetailItem(resolved.ds, resolved.ev));
+  } else {
+    detailDateLabel.textContent = `${resolved.band.start} 〜 ${resolved.band.end}`;
+    detailList.appendChild(buildBandDetailItem(resolved.band));
+  }
+}
+function buildSingleDetailItem(ds, ev) {
+  const item = document.createElement('div');
+  item.className = 'detailItem';
 
-    const textEl = document.createElement('div');
-    textEl.className = 'evtText';
-    textEl.textContent = ev.text;
-    item.appendChild(textEl);
-
-    const swRow = document.createElement('div');
-    swRow.className = 'swatchRow';
-    data.palette.forEach((hex, idx) => {
-      const sw = document.createElement('div');
-      sw.className = 'swatch' + (ev.color === idx ? ' selected' : '');
-      sw.style.background = hex;
-      makeSwatchInteractive(sw, idx, () => {
-        ev.color = idx;
-        scheduleSave();
-        refreshCell(ds);
-        renderDetailList(ds);
-      });
-      swRow.appendChild(sw);
-    });
-    item.appendChild(swRow);
-
-    const timeInput = document.createElement('input');
-    timeInput.type = 'time';
-    timeInput.value = ev.time || '';
-    timeInput.addEventListener('change', () => { ev.time = timeInput.value; scheduleSave(); });
-    item.appendChild(timeInput);
-
-    const memoInput = document.createElement('textarea');
-    memoInput.placeholder = 'メモ';
-    memoInput.value = ev.memo || '';
-    memoInput.addEventListener('change', () => { ev.memo = memoInput.value; scheduleSave(); });
-    item.appendChild(memoInput);
-
-    const delBtn = document.createElement('button');
-    delBtn.className = 'deleteBtn';
-    delBtn.textContent = '削除';
-    delBtn.addEventListener('click', () => {
-      deleteSingleEvent(ds, ev.id);
-      renderDetailList(ds);
-      if (getSingles(ds).length === 0) closeDetailModal();
-    });
-    item.appendChild(delBtn);
-
-    detailList.appendChild(item);
+  const textInput = document.createElement('input');
+  textInput.type = 'text';
+  textInput.className = 'evtText';
+  textInput.value = ev.text;
+  textInput.addEventListener('change', () => {
+    pushUndoSnapshot();
+    ev.text = textInput.value;
+    scheduleSave();
+    refreshCell(ds);
   });
+  item.appendChild(textInput);
 
-  bandsForDate(ds).forEach(band => {
-    const item = document.createElement('div');
-    item.className = 'detailItem';
-
-    const textEl = document.createElement('div');
-    textEl.className = 'evtText';
-    textEl.textContent = `${band.text} (${band.start}〜${band.end})`;
-    item.appendChild(textEl);
-
-    const swRow = document.createElement('div');
-    swRow.className = 'swatchRow';
-    data.palette.forEach((hex, idx) => {
-      const sw = document.createElement('div');
-      sw.className = 'swatch' + (band.color === idx ? ' selected' : '');
-      sw.style.background = hex;
-      makeSwatchInteractive(sw, idx, () => {
-        band.color = idx;
-        scheduleSave();
-        rerenderAllBands();
-        renderDetailList(ds);
-      });
-      swRow.appendChild(sw);
+  const swRow = document.createElement('div');
+  swRow.className = 'swatchRow';
+  data.palette.forEach((hex, idx) => {
+    const sw = document.createElement('div');
+    sw.className = 'swatch' + (ev.color === idx ? ' selected' : '');
+    sw.style.background = hex;
+    makeSwatchInteractive(sw, idx, () => {
+      pushUndoSnapshot();
+      ev.color = idx;
+      scheduleSave();
+      refreshCell(ds);
+      renderDetailList();
     });
-    item.appendChild(swRow);
-
-    const timeInput = document.createElement('input');
-    timeInput.type = 'time';
-    timeInput.value = band.time || '';
-    timeInput.addEventListener('change', () => { band.time = timeInput.value; scheduleSave(); });
-    item.appendChild(timeInput);
-
-    const memoInput = document.createElement('textarea');
-    memoInput.placeholder = 'メモ';
-    memoInput.value = band.memo || '';
-    memoInput.addEventListener('change', () => { band.memo = memoInput.value; scheduleSave(); });
-    item.appendChild(memoInput);
-
-    const delBtn = document.createElement('button');
-    delBtn.className = 'deleteBtn';
-    delBtn.textContent = '削除';
-    delBtn.addEventListener('click', () => {
-      deleteBand(band.id);
-      renderDetailList(ds);
-      if (getSingles(ds).length === 0 && bandsForDate(ds).length === 0) closeDetailModal();
-    });
-    item.appendChild(delBtn);
-
-    detailList.appendChild(item);
+    swRow.appendChild(sw);
   });
+  item.appendChild(swRow);
+
+  const timeInput = document.createElement('input');
+  timeInput.type = 'time';
+  timeInput.value = ev.time || '';
+  timeInput.addEventListener('change', () => { pushUndoSnapshot(); ev.time = timeInput.value; scheduleSave(); });
+  item.appendChild(timeInput);
+
+  const memoInput = document.createElement('textarea');
+  memoInput.placeholder = 'メモ';
+  memoInput.value = ev.memo || '';
+  memoInput.addEventListener('change', () => { pushUndoSnapshot(); ev.memo = memoInput.value; scheduleSave(); });
+  item.appendChild(memoInput);
+
+  const delBtn = document.createElement('button');
+  delBtn.className = 'deleteBtn';
+  delBtn.textContent = '削除';
+  delBtn.addEventListener('click', () => {
+    deleteSingleEvent(ds, ev.id);
+    clearSelection();
+    closeDetailModal();
+  });
+  item.appendChild(delBtn);
+
+  return item;
+}
+function buildBandDetailItem(band) {
+  const item = document.createElement('div');
+  item.className = 'detailItem';
+
+  const textInput = document.createElement('input');
+  textInput.type = 'text';
+  textInput.className = 'evtText';
+  textInput.value = band.text;
+  textInput.addEventListener('change', () => {
+    pushUndoSnapshot();
+    band.text = textInput.value;
+    scheduleSave();
+    rerenderAllBands();
+  });
+  item.appendChild(textInput);
+
+  const rangeRow = document.createElement('div');
+  rangeRow.className = 'rangeRow';
+  const startInput = document.createElement('input');
+  startInput.type = 'date';
+  startInput.value = band.start;
+  const sep = document.createElement('span');
+  sep.textContent = '〜';
+  const endInput = document.createElement('input');
+  endInput.type = 'date';
+  endInput.value = band.end;
+  rangeRow.appendChild(startInput);
+  rangeRow.appendChild(sep);
+  rangeRow.appendChild(endInput);
+  item.appendChild(rangeRow);
+
+  const rangeWarning = document.createElement('div');
+  rangeWarning.className = 'rangeWarning';
+  rangeWarning.textContent = 'この週は帯を3本までしか追加できません';
+  item.appendChild(rangeWarning);
+
+  function commitRange() {
+    let newStart = startInput.value, newEnd = endInput.value;
+    if (!newStart || !newEnd) { startInput.value = band.start; endInput.value = band.end; return; }
+    if (newStart > newEnd) { const tmp = newStart; newStart = newEnd; newEnd = tmp; }
+    if (newStart === band.start && newEnd === band.end) return;
+    if (bandWouldOverflow({ start: newStart, end: newEnd }, band.id)) {
+      startInput.value = band.start;
+      endInput.value = band.end;
+      rangeWarning.style.display = 'block';
+      setTimeout(() => { rangeWarning.style.display = 'none'; }, 1600);
+      return;
+    }
+    pushUndoSnapshot();
+    band.start = newStart;
+    band.end = newEnd;
+    band.lane = resolveLaneForBand(band, newStart, newEnd);
+    scheduleSave();
+    rerenderAllBands();
+    renderDetailList();
+  }
+  startInput.addEventListener('change', commitRange);
+  endInput.addEventListener('change', commitRange);
+
+  const swRow = document.createElement('div');
+  swRow.className = 'swatchRow';
+  data.palette.forEach((hex, idx) => {
+    const sw = document.createElement('div');
+    sw.className = 'swatch' + (band.color === idx ? ' selected' : '');
+    sw.style.background = hex;
+    makeSwatchInteractive(sw, idx, () => {
+      pushUndoSnapshot();
+      band.color = idx;
+      scheduleSave();
+      rerenderAllBands();
+      renderDetailList();
+    });
+    swRow.appendChild(sw);
+  });
+  item.appendChild(swRow);
+
+  const timeInput = document.createElement('input');
+  timeInput.type = 'time';
+  timeInput.value = band.time || '';
+  timeInput.addEventListener('change', () => { pushUndoSnapshot(); band.time = timeInput.value; scheduleSave(); });
+  item.appendChild(timeInput);
+
+  const memoInput = document.createElement('textarea');
+  memoInput.placeholder = 'メモ';
+  memoInput.value = band.memo || '';
+  memoInput.addEventListener('change', () => { pushUndoSnapshot(); band.memo = memoInput.value; scheduleSave(); });
+  item.appendChild(memoInput);
+
+  const delBtn = document.createElement('button');
+  delBtn.className = 'deleteBtn';
+  delBtn.textContent = '削除';
+  delBtn.addEventListener('click', () => {
+    deleteBand(band.id);
+    clearSelection();
+    closeDetailModal();
+  });
+  item.appendChild(delBtn);
+
+  return item;
 }
 
 function rowHeightNow() {
@@ -964,16 +1769,18 @@ function initWeeks(year, month) {
 function updateMonthLabel() {
   const rh = rowHeightCache;
   const top = gridScroll.scrollTop;
-  const bottom = top + gridScroll.clientHeight;
+  // The start month is always decided from just the topmost 5 rows (one month's worth),
+  // even in 2/3-month view, so the label's first month follows the same rule as 1-month view.
+  const windowBottom = top + 5 * rh;
   const counts = {};
   for (let i = 0; i < weekStarts.length; i++) {
     const rowTop = i * rh;
     const rowBottom = rowTop + rh;
-    if (rowBottom <= top || rowTop >= bottom) continue;
+    if (rowBottom <= top || rowTop >= windowBottom) continue;
     // Weight by how much of the row is actually visible, not a flat +1 — otherwise a
     // row peeking in by just a few px at the top/bottom edge counts as fully visible,
     // which flips the majority a beat early and then snaps back once row counts settle.
-    const visibleHeight = Math.min(rowBottom, bottom) - Math.max(rowTop, top);
+    const visibleHeight = Math.min(rowBottom, windowBottom) - Math.max(rowTop, top);
     for (let d = 0; d < 7; d++) {
       const date = addDays(weekStarts[i], d);
       const key = date.getFullYear() * 12 + date.getMonth();
@@ -991,7 +1798,14 @@ function updateMonthLabel() {
   currentMonthKey = winner;
   const y = Math.floor(currentMonthKey / 12);
   const m = currentMonthKey % 12;
-  monthLabelEl.textContent = `${y}.${m + 1}`;
+  if (monthViewCount === 1) {
+    monthLabelEl.textContent = `${y}.${m + 1}`;
+  } else {
+    const endKey = currentMonthKey + (monthViewCount - 1);
+    const y2 = Math.floor(endKey / 12);
+    const m2 = endKey % 12;
+    monthLabelEl.textContent = `${y}.${m + 1} - ${y2}.${m2 + 1}`;
+  }
 }
 
 function ensureRangeLoaded(startDate, endDate) {
@@ -1042,6 +1856,23 @@ function onResize() {
 // ---- wiring ----
 gridScroll.addEventListener('scroll', onGridScroll);
 window.addEventListener('resize', onResize);
+document.addEventListener('keydown', (e) => {
+  const tag = document.activeElement && document.activeElement.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA') return; // let the field's own native undo handle it
+  if (e.ctrlKey && e.key.toLowerCase() === 'z') {
+    e.preventDefault();
+    if (e.shiftKey) redo(); else undo();
+    return;
+  }
+  if (!selectedRef) return;
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    e.preventDefault();
+    deleteSelected();
+  } else if (e.key === 'ArrowLeft') { e.preventDefault(); moveSelectedByDays(-1); }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); moveSelectedByDays(1); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); moveSelectedByDays(-7); }
+  else if (e.key === 'ArrowDown') { e.preventDefault(); moveSelectedByDays(7); }
+});
 
 document.getElementById('prevMonthBtn').addEventListener('click', () => {
   const y = Math.floor(currentMonthKey / 12), m = currentMonthKey % 12;
@@ -1060,8 +1891,33 @@ monthLabelEl.addEventListener('click', () => {
   jumpToMonth(y, m);
 });
 
+// ---- month view density (1/2/3 months at once) ----
+function updateViewToggleUI() {
+  document.querySelectorAll('#viewToggle .viewBtn').forEach(btn => {
+    btn.classList.toggle('active', Number(btn.dataset.months) === monthViewCount);
+  });
+}
+function setMonthViewCount(n) {
+  if (n === monthViewCount) return;
+  monthViewCount = n;
+  VISIBLE = monthViewCount * 5;
+  CAP = VISIBLE + BUFFER * 2;
+  data.viewMonths = monthViewCount;
+  scheduleSave();
+  updateViewToggleUI();
+  const y = Math.floor(currentMonthKey / 12), m = currentMonthKey % 12;
+  initWeeks(y, m);
+}
+document.querySelectorAll('#viewToggle .viewBtn').forEach(btn => {
+  btn.addEventListener('click', () => setMonthViewCount(Number(btn.dataset.months)));
+});
+
 (async () => {
   await loadData();
+  monthViewCount = data.viewMonths || 1;
+  VISIBLE = monthViewCount * 5;
+  CAP = VISIBLE + BUFFER * 2;
+  updateViewToggleUI();
   initWeeks(today.getFullYear(), today.getMonth());
 })();
 </script>
