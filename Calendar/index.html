@@ -230,6 +230,8 @@
     pointer-events: none;
     box-shadow: 0 2px 8px rgba(0,0,0,0.08);
   }
+  .evtTooltipName { font-weight: 600; }
+  .evtTooltipMeta { margin-top: 4px; color: var(--text2); white-space: pre-wrap; }
   .quickInput {
     display: block;
     width: 100%;
@@ -622,7 +624,7 @@ function cellIsWeekend(date) {
 }
 
 // ---- state ----
-const today = stripTime(new Date());
+let today = stripTime(new Date());
 const BUFFER = 5;       // weeks buffered above/below, fixed regardless of view density
 let monthViewCount = 1; // 1, 2, or 3 — how many months' worth of weeks are shown at once
 let VISIBLE = monthViewCount * 5; // weeks visible in viewport
@@ -692,13 +694,28 @@ function findCellEl(ds) {
 }
 
 // ---- custom hover tooltip (replaces the native title attribute so it can be styled) ----
-function showHoverTooltip(target, text) {
+function showHoverTooltip(target, item) {
   clearTimeout(hoverTooltipTimer);
   hoverTooltipTimer = setTimeout(() => {
     hideHoverTooltip();
     const tip = document.createElement('div');
     tip.className = 'evtTooltip';
-    tip.textContent = text;
+    const nameLine = document.createElement('div');
+    nameLine.className = 'evtTooltipName';
+    nameLine.textContent = item.text;
+    tip.appendChild(nameLine);
+    if (item.time) {
+      const timeLine = document.createElement('div');
+      timeLine.className = 'evtTooltipMeta';
+      timeLine.textContent = item.time;
+      tip.appendChild(timeLine);
+    }
+    if (item.memo) {
+      const memoLine = document.createElement('div');
+      memoLine.className = 'evtTooltipMeta';
+      memoLine.textContent = item.memo;
+      tip.appendChild(memoLine);
+    }
     document.body.appendChild(tip);
     const rect = target.getBoundingClientRect();
     const left = Math.max(4, Math.min(rect.left, window.innerWidth - tip.offsetWidth - 8));
@@ -735,7 +752,7 @@ function renderCellEvents(cell, ds) {
     row.style.background = data.palette[ev.color];
     row.textContent = ev.text;
     row.dataset.id = ev.id;
-    row.addEventListener('mouseenter', () => { if (gesture.mode === 'idle') showHoverTooltip(row, ev.text); });
+    row.addEventListener('mouseenter', () => { if (gesture.mode === 'idle') showHoverTooltip(row, ev); });
     row.addEventListener('mouseleave', hideHoverTooltip);
     row.addEventListener('mousedown', (e) => onEventRowMouseDown(e, ds, ev.id, row));
     if (selected) row.appendChild(buildDeleteBadge(() => { deleteSingleEvent(ds, ev.id); clearSelection(); }));
@@ -803,7 +820,7 @@ function renderBandsForRow(rowEl, weekStart) {
     } else {
       const isStartEdge = clipStart === band.start;
       const isEndEdge = clipEnd === band.end;
-      bar.addEventListener('mouseenter', () => { if (gesture.mode === 'idle') showHoverTooltip(bar, band.text); });
+      bar.addEventListener('mouseenter', () => { if (gesture.mode === 'idle') showHoverTooltip(bar, band); });
       bar.addEventListener('mouseleave', hideHoverTooltip);
       bar.addEventListener('mousemove', (e) => {
         if (gesture.mode !== 'idle') return;
@@ -1920,6 +1937,21 @@ document.querySelectorAll('#viewToggle .viewBtn').forEach(btn => {
   updateViewToggleUI();
   initWeeks(today.getFullYear(), today.getMonth());
 })();
+
+// ---- keep the "today" border correct if the app is left open across midnight ----
+function refreshTodayIndicator() {
+  const now = stripTime(new Date());
+  if (toDs(now) === toDs(today)) return;
+  const oldDs = toDs(today);
+  today = now;
+  const oldCell = gridInner.querySelector(`.dayCell[data-date="${oldDs}"]`);
+  if (oldCell) oldCell.classList.remove('today');
+  const newCell = gridInner.querySelector(`.dayCell[data-date="${toDs(today)}"]`);
+  if (newCell) newCell.classList.add('today');
+}
+setInterval(refreshTodayIndicator, 60 * 1000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshTodayIndicator(); });
+window.addEventListener('focus', refreshTodayIndicator);
 </script>
 </body>
 </html>
