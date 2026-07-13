@@ -1,0 +1,1109 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#13A18C">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<title>Sake Log</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+  :root {
+    --green:       #13A18C;
+    --green-mid:   #0D9882;
+    --green-light: #E0F5F2;
+    --green-pale:  #EFF9F7;
+    --danger:      #E74C3C;
+    --danger-bg:   #FDEBEA;
+    --text:        #1A1D2E;
+    --text2:       #4B5563;
+    --white:       #FFFFFF;
+    --bg:          #E8EBF0;
+    --border:      #C4C9D4;
+    --shadow:      0 1px 4px rgba(0,0,0,0.08);
+  }
+
+  html, body { height: 100%; }
+  body {
+    font-family: "メイリオ", Meiryo, sans-serif;
+    background: var(--white);
+    color: var(--text);
+    min-height: 100vh;
+    padding-bottom: calc(68px + env(safe-area-inset-bottom));
+  }
+  button, input, textarea { font-family: inherit; }
+
+  /* ---- Header ---- */
+  header {
+    background: var(--white);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 16px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+  .header-title { font-size: 16px; font-weight: bold; flex: 1; text-align: center; }
+  .header-back, .header-settings {
+    background: none; border: none; color: var(--text2); cursor: pointer;
+    width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .header-back svg, .header-settings svg { display: block; }
+
+  /* ---- Bottom Nav ---- */
+  nav {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    background: var(--white);
+    border-top: 1px solid var(--border);
+    display: flex;
+    z-index: 100;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  nav button {
+    flex: 1;
+    background: none;
+    border: none;
+    color: var(--text2);
+    padding: 10px 4px 8px;
+    font-size: 10px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+  }
+  nav button.active { color: var(--green); }
+  nav button svg { display: block; }
+
+  /* ---- Tab Panels ---- */
+  .tab { display: none; }
+  .tab.active { display: block; }
+
+  /* ---- Form ---- */
+  .form { padding: 16px; display: flex; flex-direction: column; gap: 18px; }
+  .form-group { display: flex; flex-direction: column; gap: 6px; }
+  .form-group label { font-size: 12px; color: var(--text2); font-weight: bold; }
+  .req { color: var(--danger); margin-left: 2px; }
+  .form-input {
+    width: 100%; border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px; font-size: 15px; outline: none; color: var(--text); background: var(--white);
+  }
+  .form-input:focus { border-color: var(--green); }
+  textarea.form-input { resize: vertical; }
+  .field-warning { color: var(--danger); font-size: 12px; }
+  .field-hint { color: var(--text2); font-size: 12px; }
+
+  .picker-btn {
+    width: 100%; display: flex; align-items: center; justify-content: space-between;
+    border: 1px solid var(--border); border-radius: 8px; padding: 12px;
+    background: var(--white); font-size: 15px; color: var(--text); cursor: pointer;
+  }
+  .picker-placeholder { color: var(--text2); }
+  .picker-chevron { color: var(--text2); font-size: 16px; }
+
+  .photo-picker {
+    width: 140px; height: 140px; border: 2px dashed var(--border); border-radius: 12px;
+    display: flex; align-items: center; justify-content: center; cursor: pointer;
+    overflow: hidden; background: var(--bg); color: var(--text2); font-size: 12px; text-align: center;
+  }
+  .photo-picker img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+  .price-row { display: flex; gap: 8px; }
+  .price-input { flex: 1; }
+  .segmented { display: flex; gap: 6px; }
+  .segmented button {
+    border: 1px solid var(--border); background: var(--white); color: var(--text2);
+    border-radius: 8px; padding: 0 14px; font-size: 13px; cursor: pointer;
+  }
+  .segmented button.active { background: var(--green); color: var(--white); border-color: var(--green); }
+
+  .form-actions { display: flex; gap: 10px; padding: 4px 16px 24px; }
+  .btn-save {
+    flex: 1; background: var(--green); color: var(--white); border: none; border-radius: 8px;
+    padding: 14px; font-size: 15px; font-weight: bold; cursor: pointer;
+  }
+  .btn-cancel-edit {
+    background: none; color: var(--text2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 14px 18px; font-size: 14px; cursor: pointer;
+  }
+
+  /* ---- Browse: genre grid ---- */
+  .genre-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; padding: 16px; }
+  .genre-tile {
+    background: var(--white); border: 1px solid var(--border); border-radius: 12px;
+    padding: 22px 12px; text-align: center; box-shadow: var(--shadow); cursor: pointer;
+  }
+  .genre-tile-name { font-weight: bold; font-size: 15px; }
+  .genre-tile-count { color: var(--text2); font-size: 12px; margin-top: 4px; }
+
+  /* ---- Browse: item grid ---- */
+  .item-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; padding: 2px; }
+  .item-tile { cursor: pointer; }
+  .item-tile-photo { aspect-ratio: 1 / 1; background: var(--bg); overflow: hidden; }
+  .item-tile-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .item-tile-placeholder {
+    width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
+    background: var(--green-pale); color: var(--green); font-size: 22px; font-weight: bold;
+  }
+  .item-tile-name {
+    font-size: 11px; padding: 4px 3px; text-align: center; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+  }
+
+  /* ---- Browse: detail ---- */
+  .detail-photo { aspect-ratio: 1 / 1; width: 100%; background: var(--bg); }
+  .detail-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .detail-photo-placeholder {
+    width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
+    background: var(--green-pale); color: var(--green); font-size: 48px; font-weight: bold;
+  }
+  .detail-body { padding: 18px 16px; }
+  .detail-genre { font-size: 12px; color: var(--green); font-weight: bold; }
+  .detail-name { font-size: 20px; margin: 4px 0 10px; }
+  .detail-price { font-size: 17px; font-weight: bold; margin-bottom: 10px; }
+  .detail-price-type {
+    font-size: 11px; color: var(--text2); margin-left: 8px; font-weight: normal;
+    background: var(--bg); padding: 2px 9px; border-radius: 10px;
+  }
+  .detail-memo { white-space: pre-wrap; color: var(--text); margin-bottom: 14px; line-height: 1.7; font-size: 14px; }
+  .detail-link, .detail-link-plain { display: block; margin-bottom: 18px; word-break: break-all; font-size: 13px; }
+  .detail-link { color: var(--green); }
+  .detail-link-plain { color: var(--text2); }
+  .detail-actions { display: flex; gap: 8px; }
+  .btn-edit, .btn-delete {
+    flex: 1; border: none; border-radius: 8px; padding: 13px; font-weight: bold; font-size: 14px; cursor: pointer;
+  }
+  .btn-edit { background: var(--green-light); color: var(--green); }
+  .btn-delete { background: var(--danger-bg); color: var(--danger); }
+
+  .empty-state { padding: 70px 20px; text-align: center; color: var(--text2); font-size: 13px; }
+
+  /* ---- Selection Sheet (genre picker / manage, settings) ---- */
+  .sel-sheet-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.25); z-index: 520; }
+  .sel-sheet-panel {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: var(--white); z-index: 521;
+    border-top: 1px solid var(--border); border-radius: 14px 14px 0 0;
+    max-height: 75vh; overflow-y: auto;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .sel-sheet-title-bar {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 14px 16px; font-size: 14px; font-weight: bold; color: var(--text);
+    border-bottom: 1px solid var(--border); background: var(--bg);
+    border-radius: 14px 14px 0 0; position: sticky; top: 0;
+  }
+  .sel-sheet-manage-link { color: var(--green); font-size: 13px; font-weight: bold; cursor: pointer; }
+  .sel-row { padding: 14px 16px; border-bottom: 1px solid var(--border); font-size: 15px; cursor: pointer; }
+  .sel-row-add { color: var(--green); font-weight: bold; }
+
+  .genre-manage-row { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--border); }
+  .genre-manage-name { flex: 1; border: 1px solid var(--border); border-radius: 6px; padding: 9px 10px; font-size: 14px; }
+  .genre-manage-btns { display: flex; gap: 4px; flex-shrink: 0; }
+  .genre-manage-btns button {
+    background: var(--bg); border: none; border-radius: 6px; width: 30px; height: 30px;
+    font-size: 12px; color: var(--text2); cursor: pointer;
+  }
+  .genre-manage-btns button:disabled { opacity: 0.3; }
+  .genre-manage-del { color: var(--danger) !important; }
+  .genre-manage-add-confirm {
+    background: var(--green); color: var(--white); border: none; border-radius: 6px;
+    padding: 9px 14px; font-size: 13px; cursor: pointer; flex-shrink: 0;
+  }
+
+  .settings-body { padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+  .settings-btn {
+    display: block; text-align: center; background: var(--bg); color: var(--text); border: none;
+    border-radius: 8px; padding: 14px; font-size: 14px; cursor: pointer; width: 100%;
+  }
+
+  /* ---- Confirm modal ---- */
+  .item-action-modal {
+    position: fixed; inset: 0; z-index: 620;
+    display: none; align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.35);
+  }
+  .item-action-modal.show { display: flex; }
+  .item-action-card {
+    background: var(--white); border-radius: 14px;
+    padding: 22px 20px 18px; margin: 0 24px;
+    width: calc(100% - 48px); max-width: 360px;
+  }
+  .item-action-card-title { font-size: 14px; color: var(--text); text-align: center; margin-bottom: 18px; line-height: 1.6; }
+  .item-action-btns { display: flex; gap: 8px; }
+  .item-action-btn { flex: 1; padding: 11px 4px; border: none; border-radius: 8px; font-size: 13px; font-weight: bold; cursor: pointer; }
+  .ia-cancel { background: var(--bg); color: var(--text2); }
+  .ia-ok { background: var(--danger-bg); color: var(--danger); }
+
+  /* ---- Toast ---- */
+  .toast {
+    position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+    background: var(--text); color: var(--white); padding: 10px 18px; border-radius: 22px;
+    font-size: 13px; opacity: 0; transition: opacity 0.3s; z-index: 400; pointer-events: none;
+    white-space: nowrap; display: flex; align-items: center; gap: 12px;
+  }
+  .toast.show { opacity: 1; }
+  .toast-undo { background: none; border: none; color: #7FE0D0; font-weight: bold; font-size: 13px; text-decoration: underline; pointer-events: auto; cursor: pointer; padding: 0; }
+
+  /* ---- Crop modal ---- */
+  .crop-overlay { position: fixed; inset: 0; background: #000; z-index: 700; display: none; flex-direction: column; }
+  .crop-overlay.show { display: flex; }
+  .crop-header { display: flex; justify-content: space-between; align-items: center; padding: calc(14px + env(safe-area-inset-top)) 16px 14px; }
+  .crop-header button { background: none; border: none; color: #fff; font-size: 15px; cursor: pointer; }
+  .crop-header span { color: #fff; font-size: 14px; font-weight: bold; }
+  .crop-stage { flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; touch-action: none; }
+  #cropCanvas { width: min(88vw, 60vh); height: min(88vw, 60vh); touch-action: none; border-radius: 4px; }
+  .crop-controls { padding: 20px 28px calc(28px + env(safe-area-inset-bottom)); }
+  .crop-controls input[type=range] { width: 100%; }
+</style>
+</head>
+<body>
+
+<header>
+  <button class="header-back" id="headerBack" onclick="popBrowse()" style="display:none" aria-label="戻る">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+  </button>
+  <div class="header-title" id="headerTitle">入力</div>
+  <button class="header-settings" onclick="openSettings()" aria-label="設定">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+  </button>
+</header>
+
+<main>
+  <div id="tab-input" class="tab active">
+    <div class="form">
+      <div class="form-group">
+        <label>ジャンル<span class="req">*</span></label>
+        <button type="button" class="picker-btn" onclick="openGenreSheet()">
+          <span id="genreFieldLabel" class="picker-placeholder">ジャンルを選択</span>
+          <span class="picker-chevron">›</span>
+        </button>
+        <div class="field-warning" id="genreWarning" style="display:none">ジャンルを選択してください</div>
+      </div>
+
+      <div class="form-group">
+        <label>名称<span class="req">*</span></label>
+        <input type="text" id="nameInput" class="form-input" placeholder="例：獺祭 純米大吟醸">
+        <div class="field-warning" id="nameWarning" style="display:none">名称を入力してください</div>
+      </div>
+
+      <div class="form-group">
+        <label>写真</label>
+        <div class="photo-picker" id="photoPicker" onclick="triggerPhotoPick()">
+          <img id="photoPreview" style="display:none">
+          <span id="photoPlaceholder">＋ 写真を選ぶ</span>
+        </div>
+        <input type="file" id="photoInput" accept="image/*" style="display:none" onchange="onPhotoSelected(event)">
+      </div>
+
+      <div class="form-group">
+        <label>メモ</label>
+        <textarea id="memoInput" class="form-input" rows="3" placeholder="味の感想など"></textarea>
+      </div>
+
+      <div class="form-group">
+        <label>価格</label>
+        <div class="price-row">
+          <input type="number" id="priceInput" class="form-input price-input" placeholder="円" inputmode="numeric" min="0">
+          <div class="segmented" id="priceTypeSeg">
+            <button type="button" data-v="店" onclick="selectPriceType('店')">店</button>
+            <button type="button" data-v="購入" onclick="selectPriceType('購入')">購入</button>
+            <button type="button" data-v="その他" onclick="selectPriceType('その他')">その他</button>
+          </div>
+        </div>
+        <div class="field-warning" id="priceTypeWarning" style="display:none">価格の種類を選んでください</div>
+      </div>
+
+      <div class="form-group">
+        <label>URL</label>
+        <input type="url" id="urlInput" class="form-input" placeholder="https://..." onblur="checkUrlHint()">
+        <div class="field-hint" id="urlWarning" style="display:none">URLの形式ではないようです（保存はできます）</div>
+      </div>
+    </div>
+    <div class="form-actions">
+      <button type="button" class="btn-cancel-edit" id="cancelEditBtn" style="display:none" onclick="cancelEdit()">キャンセル</button>
+      <button type="button" class="btn-save" onclick="saveItem()">保存</button>
+    </div>
+  </div>
+
+  <div id="tab-browse" class="tab">
+    <div id="browseRoot"></div>
+  </div>
+</main>
+
+<nav>
+  <button id="nav-input" onclick="switchTab('input')" class="active">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>
+    </svg>
+    入力
+  </button>
+  <button id="nav-browse" onclick="switchTab('browse')">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+      <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
+    </svg>
+    閲覧
+  </button>
+</nav>
+
+<!-- Genre picker / manage sheet -->
+<div id="genreSheetOverlay" class="sel-sheet-overlay" style="display:none" onclick="closeGenreSheet()"></div>
+<div id="genreSheetPanel" class="sel-sheet-panel" style="display:none">
+  <div class="sel-sheet-title-bar">
+    <span id="genreSheetTitleText">ジャンルを選択</span>
+    <span class="sel-sheet-manage-link" id="genreSheetManageLink" onclick="toggleGenreManageMode()">編集</span>
+  </div>
+  <div id="genreSheetList"></div>
+</div>
+
+<!-- Settings sheet -->
+<div id="settingsOverlay" class="sel-sheet-overlay" style="display:none" onclick="closeSettings()"></div>
+<div id="settingsPanel" class="sel-sheet-panel" style="display:none">
+  <div class="sel-sheet-title-bar"><span>設定</span></div>
+  <div class="settings-body">
+    <button type="button" class="settings-btn" onclick="exportBackup()">バックアップを書き出す</button>
+    <label class="settings-btn" for="importFileInput">バックアップを読み込む</label>
+    <input type="file" id="importFileInput" accept="application/json" style="display:none" onchange="importBackup(event)">
+  </div>
+</div>
+
+<!-- Confirm modal -->
+<div id="confirmModal" class="item-action-modal">
+  <div class="item-action-card">
+    <div class="item-action-card-title" id="confirmTitle"></div>
+    <div class="item-action-btns">
+      <button type="button" class="item-action-btn ia-cancel" onclick="closeConfirm(false)">キャンセル</button>
+      <button type="button" class="item-action-btn ia-ok" onclick="closeConfirm(true)">削除</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast" class="toast">
+  <span id="toastMsg"></span>
+  <button type="button" id="toastUndoBtn" class="toast-undo" style="display:none">元に戻す</button>
+</div>
+
+<!-- Crop modal -->
+<div id="cropOverlay" class="crop-overlay">
+  <div class="crop-header">
+    <button type="button" onclick="cancelCrop()">キャンセル</button>
+    <span>写真を調整</span>
+    <button type="button" onclick="confirmCrop()">完了</button>
+  </div>
+  <div class="crop-stage">
+    <canvas id="cropCanvas"></canvas>
+  </div>
+  <div class="crop-controls">
+    <input type="range" id="cropZoom" min="1" max="3" step="0.01" value="1" oninput="onCropZoomChange()">
+  </div>
+</div>
+
+<script>
+// ============================================================
+//  IndexedDB
+// ============================================================
+const DB_NAME = 'sakelog';
+const DB_VERSION = 1;
+let db;
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = (e) => {
+      const d = e.target.result;
+      if (!d.objectStoreNames.contains('genres')) {
+        d.createObjectStore('genres', { keyPath: 'id' });
+      }
+      if (!d.objectStoreNames.contains('items')) {
+        const store = d.createObjectStore('items', { keyPath: 'id' });
+        store.createIndex('genreId', 'genreId', { unique: false });
+      }
+    };
+    req.onsuccess = (e) => { db = e.target.result; resolve(db); };
+    req.onerror = (e) => reject(e.target.error);
+  });
+}
+function storeTx(name, mode) { return db.transaction(name, mode).objectStore(name); }
+function getAll(name) {
+  return new Promise((resolve, reject) => {
+    const req = storeTx(name, 'readonly').getAll();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+function put(name, value) {
+  return new Promise((resolve, reject) => {
+    const req = storeTx(name, 'readwrite').put(value);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+function del(name, key) {
+  return new Promise((resolve, reject) => {
+    const req = storeTx(name, 'readwrite').delete(key);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+function clearStore(name) {
+  return new Promise((resolve, reject) => {
+    const req = storeTx(name, 'readwrite').clear();
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+// ============================================================
+//  State
+// ============================================================
+let genres = [];
+let items = [];
+let currentTab = 'input';
+let browseStack = [{ type: 'genres' }];
+
+let selectedGenreId = null;
+let selectedPriceType = null;
+let editingItemId = null;
+let pendingPhotoBlob = null;
+let pendingPhotoChanged = false;
+let previewUrl = null;
+
+// ============================================================
+//  Helpers
+// ============================================================
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+function fmt(n) { return Number(n).toLocaleString('ja-JP'); }
+function pad(n) { return String(n).padStart(2, '0'); }
+function genreById(id) { return genres.find(g => g.id === id); }
+function itemById(id) { return items.find(i => i.id === id); }
+function safeUrl(u) { return /^https?:\/\//i.test(u) ? u : null; }
+function photoUrlFor(it) {
+  if (!it.photo) return null;
+  if (!it._photoUrl) it._photoUrl = URL.createObjectURL(it.photo);
+  return it._photoUrl;
+}
+
+// ============================================================
+//  Tabs / header
+// ============================================================
+function switchTab(name) {
+  currentTab = name;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  document.getElementById('nav-' + name).classList.add('active');
+  if (name === 'browse') renderBrowse();
+  updateHeader();
+}
+function updateHeader() {
+  const showBack = currentTab === 'browse' && browseStack.length > 1;
+  document.getElementById('headerBack').style.display = showBack ? 'flex' : 'none';
+  let title = editingItemId ? '編集' : '入力';
+  if (currentTab === 'browse') {
+    const top = browseStack[browseStack.length - 1];
+    if (top.type === 'genres') title = '閲覧';
+    else if (top.type === 'items') title = genreById(top.genreId)?.name || '閲覧';
+    else if (top.type === 'detail') title = itemById(top.itemId)?.name || '';
+  }
+  document.getElementById('headerTitle').textContent = title;
+}
+
+// ============================================================
+//  Browse navigation
+// ============================================================
+function pushBrowse(screen) {
+  browseStack.push(screen);
+  history.pushState({ browseDepth: browseStack.length }, '');
+  renderBrowse();
+}
+function popBrowse() {
+  if (browseStack.length > 1) { browseStack.pop(); renderBrowse(); }
+}
+window.addEventListener('popstate', () => {
+  if (currentTab === 'browse' && browseStack.length > 1) { browseStack.pop(); renderBrowse(); }
+});
+
+function renderBrowse() {
+  const top = browseStack[browseStack.length - 1];
+  const root = document.getElementById('browseRoot');
+  if (top.type === 'genres') root.innerHTML = renderGenreGridHTML();
+  else if (top.type === 'items') root.innerHTML = renderItemGridHTML(top.genreId);
+  else if (top.type === 'detail') root.innerHTML = renderDetailHTML(top.itemId);
+  updateHeader();
+}
+
+function renderGenreGridHTML() {
+  const sorted = [...genres].sort((a, b) => a.order - b.order);
+  if (sorted.length === 0) return `<div class="empty-state">ジャンルがまだありません。<br>「入力」タブからジャンルを追加できます。</div>`;
+  const html = sorted.map(g => {
+    const count = items.filter(i => i.genreId === g.id).length;
+    return `<div class="genre-tile" onclick='pushBrowse(${JSON.stringify({ type: 'items', genreId: g.id })})'>
+      <div class="genre-tile-name">${esc(g.name)}</div>
+      <div class="genre-tile-count">${count}件</div>
+    </div>`;
+  }).join('');
+  return `<div class="genre-grid">${html}</div>`;
+}
+
+function renderItemGridHTML(genreId) {
+  const list = items.filter(i => i.genreId === genreId).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  if (list.length === 0) return `<div class="empty-state">まだ記録がありません。</div>`;
+  const html = list.map(it => `
+    <div class="item-tile" onclick='pushBrowse(${JSON.stringify({ type: 'detail', itemId: it.id })})'>
+      <div class="item-tile-photo">${itemTilePhotoHTML(it)}</div>
+      <div class="item-tile-name">${esc(it.name)}</div>
+    </div>`).join('');
+  return `<div class="item-grid">${html}</div>`;
+}
+function itemTilePhotoHTML(it) {
+  const url = photoUrlFor(it);
+  if (url) return `<img src="${url}" alt="">`;
+  return `<div class="item-tile-placeholder">${esc((it.name || '?').charAt(0))}</div>`;
+}
+
+function renderDetailHTML(itemId) {
+  const it = itemById(itemId);
+  if (!it) return `<div class="empty-state">この記録は削除されました。</div>`;
+  const g = genreById(it.genreId);
+  const url = photoUrlFor(it);
+  const photoHtml = url ? `<img src="${url}" alt="">` : `<div class="detail-photo-placeholder">${esc((it.name || '?').charAt(0))}</div>`;
+  const priceHtml = it.price ? `<div class="detail-price">¥${fmt(it.price)}${it.priceType ? `<span class="detail-price-type">${esc(it.priceType)}</span>` : ''}</div>` : '';
+  const memoHtml = it.memo ? `<div class="detail-memo">${esc(it.memo)}</div>` : '';
+  let linkHtml = '';
+  if (it.url) {
+    linkHtml = safeUrl(it.url)
+      ? `<a class="detail-link" href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.url)}</a>`
+      : `<div class="detail-link-plain">${esc(it.url)}</div>`;
+  }
+  return `
+    <div class="detail-photo">${photoHtml}</div>
+    <div class="detail-body">
+      <div class="detail-genre">${esc(g ? g.name : '')}</div>
+      <h2 class="detail-name">${esc(it.name)}</h2>
+      ${priceHtml}
+      ${memoHtml}
+      ${linkHtml}
+      <div class="detail-actions">
+        <button type="button" class="btn-edit" onclick="startEdit('${it.id}')">編集</button>
+        <button type="button" class="btn-delete" onclick="confirmDeleteItem('${it.id}')">削除</button>
+      </div>
+    </div>`;
+}
+
+// ============================================================
+//  Genre picker / manage sheet
+// ============================================================
+let genreManageMode = false;
+let addingGenre = false;
+
+function openGenreSheet() {
+  genreManageMode = false;
+  addingGenre = false;
+  renderGenreSheet();
+  document.getElementById('genreSheetOverlay').style.display = 'block';
+  document.getElementById('genreSheetPanel').style.display = 'block';
+}
+function closeGenreSheet() {
+  document.getElementById('genreSheetOverlay').style.display = 'none';
+  document.getElementById('genreSheetPanel').style.display = 'none';
+}
+function toggleGenreManageMode() {
+  genreManageMode = !genreManageMode;
+  addingGenre = false;
+  renderGenreSheet();
+}
+function renderGenreSheet() {
+  document.getElementById('genreSheetTitleText').textContent = genreManageMode ? 'ジャンル管理' : 'ジャンルを選択';
+  document.getElementById('genreSheetManageLink').textContent = genreManageMode ? '完了' : '編集';
+  const sorted = [...genres].sort((a, b) => a.order - b.order);
+  const list = document.getElementById('genreSheetList');
+  let html;
+  if (!genreManageMode) {
+    html = sorted.map(g => `<div class="sel-row" onclick="selectGenre('${g.id}')">${esc(g.name)}</div>`).join('');
+  } else {
+    html = sorted.map((g, idx) => `
+      <div class="genre-manage-row">
+        <input type="text" class="genre-manage-name" value="${esc(g.name)}" onchange="renameGenre('${g.id}', this.value)">
+        <div class="genre-manage-btns">
+          <button type="button" ${idx === 0 ? 'disabled' : ''} onclick="moveGenre('${g.id}', -1)">▲</button>
+          <button type="button" ${idx === sorted.length - 1 ? 'disabled' : ''} onclick="moveGenre('${g.id}', 1)">▼</button>
+          <button type="button" class="genre-manage-del" onclick="requestDeleteGenre('${g.id}')">🗑</button>
+        </div>
+      </div>`).join('');
+    if (addingGenre) {
+      html += `
+      <div class="genre-manage-row">
+        <input type="text" id="newGenreInput" class="genre-manage-name" placeholder="ジャンル名" onkeydown="if(event.key==='Enter')confirmAddGenre()">
+        <button type="button" class="genre-manage-add-confirm" onclick="confirmAddGenre()">追加</button>
+      </div>`;
+    }
+  }
+  html += `<div class="sel-row sel-row-add" onclick="addGenrePrompt()">＋ 新しいジャンルを追加</div>`;
+  list.innerHTML = html;
+  if (addingGenre) setTimeout(() => document.getElementById('newGenreInput')?.focus(), 0);
+}
+function selectGenre(id) {
+  selectedGenreId = id;
+  updateGenreFieldLabel();
+  document.getElementById('genreWarning').style.display = 'none';
+  closeGenreSheet();
+}
+function updateGenreFieldLabel() {
+  const g = genreById(selectedGenreId);
+  const label = document.getElementById('genreFieldLabel');
+  if (g) { label.textContent = g.name; label.classList.remove('picker-placeholder'); }
+  else { label.textContent = 'ジャンルを選択'; label.classList.add('picker-placeholder'); }
+}
+function addGenrePrompt() {
+  genreManageMode = true;
+  addingGenre = true;
+  renderGenreSheet();
+}
+async function confirmAddGenre() {
+  const input = document.getElementById('newGenreInput');
+  const name = input.value.trim();
+  if (!name) { input.focus(); return; }
+  const g = { id: crypto.randomUUID(), name, order: genres.length };
+  await put('genres', g);
+  genres.push(g);
+  addingGenre = false;
+  renderGenreSheet();
+}
+async function renameGenre(id, newName) {
+  const name = newName.trim();
+  const g = genreById(id);
+  if (!name) { renderGenreSheet(); return; }
+  g.name = name;
+  await put('genres', g);
+  renderGenreSheet();
+  renderBrowse();
+}
+async function moveGenre(id, dir) {
+  const sorted = [...genres].sort((a, b) => a.order - b.order);
+  const idx = sorted.findIndex(g => g.id === id);
+  const swapIdx = idx + dir;
+  if (swapIdx < 0 || swapIdx >= sorted.length) return;
+  const a = sorted[idx], b = sorted[swapIdx];
+  const tmp = a.order; a.order = b.order; b.order = tmp;
+  await put('genres', a);
+  await put('genres', b);
+  renderGenreSheet();
+}
+async function requestDeleteGenre(id) {
+  const g = genreById(id);
+  const affected = items.filter(i => i.genreId === id);
+  if (affected.length > 0) {
+    const ok = await askConfirm(`「${g.name}」を削除します。含まれる${affected.length}件のお酒も削除されます。よろしいですか？`);
+    if (!ok) return;
+  }
+  await del('genres', id);
+  genres = genres.filter(x => x.id !== id);
+  for (const it of affected) { await del('items', it.id); if (it._photoUrl) { URL.revokeObjectURL(it._photoUrl); it._photoUrl = null; } }
+  items = items.filter(i => i.genreId !== id);
+  if (selectedGenreId === id) { selectedGenreId = null; updateGenreFieldLabel(); }
+  renderGenreSheet();
+  renderBrowse();
+  showUndoToast(`「${g.name}」を削除しました`, async () => {
+    await put('genres', g);
+    genres.push(g);
+    for (const it of affected) { await put('items', it); items.push(it); }
+    renderGenreSheet();
+    renderBrowse();
+  });
+}
+
+// ============================================================
+//  Form: validation + save
+// ============================================================
+function selectPriceType(v) {
+  selectedPriceType = (selectedPriceType === v) ? null : v;
+  updatePriceTypeButtons();
+  document.getElementById('priceTypeWarning').style.display = 'none';
+}
+function updatePriceTypeButtons() {
+  document.querySelectorAll('#priceTypeSeg button').forEach(b => b.classList.toggle('active', b.dataset.v === selectedPriceType));
+}
+function checkUrlHint() {
+  const v = document.getElementById('urlInput').value.trim();
+  document.getElementById('urlWarning').style.display = (v && !safeUrl(v)) ? 'block' : 'none';
+}
+
+async function saveItem() {
+  let valid = true;
+  document.getElementById('genreWarning').style.display = 'none';
+  document.getElementById('nameWarning').style.display = 'none';
+  document.getElementById('priceTypeWarning').style.display = 'none';
+
+  if (!selectedGenreId) { document.getElementById('genreWarning').style.display = 'block'; valid = false; }
+  const name = document.getElementById('nameInput').value.trim();
+  if (!name) { document.getElementById('nameWarning').style.display = 'block'; valid = false; }
+  const priceRaw = document.getElementById('priceInput').value;
+  const price = priceRaw ? Number(priceRaw) : null;
+  if (price && !selectedPriceType) { document.getElementById('priceTypeWarning').style.display = 'block'; valid = false; }
+  if (!valid) return;
+
+  const url = document.getElementById('urlInput').value.trim();
+  const memo = document.getElementById('memoInput').value.trim();
+
+  const isEdit = !!editingItemId;
+  const existing = isEdit ? itemById(editingItemId) : null;
+  if (existing && existing._photoUrl) { URL.revokeObjectURL(existing._photoUrl); }
+
+  const record = {
+    id: isEdit ? editingItemId : crypto.randomUUID(),
+    genreId: selectedGenreId,
+    name, memo,
+    price: price,
+    priceType: price ? selectedPriceType : null,
+    url,
+    photo: pendingPhotoChanged ? pendingPhotoBlob : (existing ? existing.photo : null),
+    order: existing ? existing.order : items.filter(i => i.genreId === selectedGenreId).length,
+    createdAt: existing ? existing.createdAt : Date.now(),
+  };
+  await put('items', record);
+  if (isEdit) items = items.map(i => i.id === record.id ? record : i);
+  else items.push(record);
+
+  const wasEdit = isEdit;
+  showToast(wasEdit ? '更新しました' : '保存しました');
+  resetForm();
+  if (wasEdit) switchTab('browse');
+}
+
+function resetForm() {
+  editingItemId = null;
+  selectedGenreId = null;
+  selectedPriceType = null;
+  pendingPhotoBlob = null;
+  pendingPhotoChanged = false;
+  updateGenreFieldLabel();
+  document.getElementById('nameInput').value = '';
+  document.getElementById('memoInput').value = '';
+  document.getElementById('priceInput').value = '';
+  document.getElementById('urlInput').value = '';
+  updatePriceTypeButtons();
+  clearPhotoPreview();
+  document.getElementById('genreWarning').style.display = 'none';
+  document.getElementById('nameWarning').style.display = 'none';
+  document.getElementById('priceTypeWarning').style.display = 'none';
+  document.getElementById('urlWarning').style.display = 'none';
+  document.getElementById('cancelEditBtn').style.display = 'none';
+  document.querySelector('.btn-save').textContent = '保存';
+  updateHeader();
+}
+function cancelEdit() {
+  resetForm();
+  switchTab('browse');
+}
+function startEdit(id) {
+  const it = itemById(id);
+  editingItemId = id;
+  selectedGenreId = it.genreId;
+  updateGenreFieldLabel();
+  document.getElementById('nameInput').value = it.name;
+  document.getElementById('memoInput').value = it.memo || '';
+  document.getElementById('priceInput').value = it.price || '';
+  selectedPriceType = it.priceType;
+  updatePriceTypeButtons();
+  document.getElementById('urlInput').value = it.url || '';
+  document.getElementById('urlWarning').style.display = 'none';
+  pendingPhotoChanged = false;
+  pendingPhotoBlob = null;
+  if (it.photo) setPhotoPreview(it.photo); else clearPhotoPreview();
+  document.getElementById('cancelEditBtn').style.display = 'inline-block';
+  document.querySelector('.btn-save').textContent = '更新';
+  switchTab('input');
+}
+
+async function confirmDeleteItem(id) {
+  const ok = await askConfirm('この記録を削除しますか？');
+  if (!ok) return;
+  const it = itemById(id);
+  await del('items', id);
+  items = items.filter(i => i.id !== id);
+  if (it._photoUrl) { URL.revokeObjectURL(it._photoUrl); it._photoUrl = null; }
+  popBrowse();
+  showUndoToast(`「${it.name}」を削除しました`, async () => {
+    await put('items', it);
+    items.push(it);
+    renderBrowse();
+  });
+}
+
+// ============================================================
+//  Photo select + crop
+// ============================================================
+function triggerPhotoPick() { document.getElementById('photoInput').click(); }
+
+function onPhotoSelected(e) {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => openCrop(img, url);
+  img.onerror = () => { showToast('この画像は読み込めませんでした'); URL.revokeObjectURL(url); };
+  img.src = url;
+}
+
+const CROP_SIZE = 800;
+let cropImg = null, cropObjectUrl = null;
+let cropZoomVal = 1, cropPanX = 0, cropPanY = 0, cropBaseScale = 1;
+let cropDragging = false, cropDragStart = null;
+
+function openCrop(img, objectUrl) {
+  cropImg = img; cropObjectUrl = objectUrl;
+  cropZoomVal = 1;
+  const canvas = document.getElementById('cropCanvas');
+  canvas.width = CROP_SIZE; canvas.height = CROP_SIZE;
+  cropBaseScale = Math.max(CROP_SIZE / img.width, CROP_SIZE / img.height);
+  const w = img.width * cropBaseScale, h = img.height * cropBaseScale;
+  cropPanX = (CROP_SIZE - w) / 2;
+  cropPanY = (CROP_SIZE - h) / 2;
+  document.getElementById('cropZoom').value = 1;
+  redrawCrop();
+  document.getElementById('cropOverlay').classList.add('show');
+}
+function clampPan() {
+  const scale = cropBaseScale * cropZoomVal;
+  const w = cropImg.width * scale, h = cropImg.height * scale;
+  cropPanX = Math.min(0, Math.max(CROP_SIZE - w, cropPanX));
+  cropPanY = Math.min(0, Math.max(CROP_SIZE - h, cropPanY));
+}
+function redrawCrop() {
+  const canvas = document.getElementById('cropCanvas');
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, CROP_SIZE, CROP_SIZE);
+  const scale = cropBaseScale * cropZoomVal;
+  const w = cropImg.width * scale, h = cropImg.height * scale;
+  ctx.drawImage(cropImg, cropPanX, cropPanY, w, h);
+}
+function onCropZoomChange() {
+  cropZoomVal = parseFloat(document.getElementById('cropZoom').value);
+  clampPan();
+  redrawCrop();
+}
+function cropPointerRatio() {
+  const rect = document.getElementById('cropCanvas').getBoundingClientRect();
+  return CROP_SIZE / rect.width;
+}
+function onCropPointerDown(e) {
+  cropDragging = true;
+  cropDragStart = { x: e.clientX, y: e.clientY, panX: cropPanX, panY: cropPanY };
+  e.target.setPointerCapture(e.pointerId);
+}
+function onCropPointerMove(e) {
+  if (!cropDragging) return;
+  const ratio = cropPointerRatio();
+  cropPanX = cropDragStart.panX + (e.clientX - cropDragStart.x) * ratio;
+  cropPanY = cropDragStart.panY + (e.clientY - cropDragStart.y) * ratio;
+  clampPan();
+  redrawCrop();
+}
+function onCropPointerUp() { cropDragging = false; }
+
+function cancelCrop() {
+  document.getElementById('cropOverlay').classList.remove('show');
+  if (cropObjectUrl) URL.revokeObjectURL(cropObjectUrl);
+  cropImg = null; cropObjectUrl = null;
+}
+function confirmCrop() {
+  const canvas = document.getElementById('cropCanvas');
+  canvas.toBlob(blob => {
+    pendingPhotoBlob = blob;
+    pendingPhotoChanged = true;
+    setPhotoPreview(blob);
+    document.getElementById('cropOverlay').classList.remove('show');
+    if (cropObjectUrl) URL.revokeObjectURL(cropObjectUrl);
+    cropImg = null; cropObjectUrl = null;
+  }, 'image/jpeg', 0.85);
+}
+function setPhotoPreview(blob) {
+  const img = document.getElementById('photoPreview');
+  const ph = document.getElementById('photoPlaceholder');
+  if (previewUrl) URL.revokeObjectURL(previewUrl);
+  previewUrl = URL.createObjectURL(blob);
+  img.src = previewUrl;
+  img.style.display = 'block';
+  ph.style.display = 'none';
+}
+function clearPhotoPreview() {
+  const img = document.getElementById('photoPreview');
+  const ph = document.getElementById('photoPlaceholder');
+  if (previewUrl) { URL.revokeObjectURL(previewUrl); previewUrl = null; }
+  img.src = '';
+  img.style.display = 'none';
+  ph.style.display = 'block';
+}
+
+// ============================================================
+//  Confirm modal (reusable)
+// ============================================================
+let confirmResolve = null;
+function askConfirm(title) {
+  return new Promise(resolve => {
+    confirmResolve = resolve;
+    document.getElementById('confirmTitle').textContent = title;
+    document.getElementById('confirmModal').classList.add('show');
+  });
+}
+function closeConfirm(result) {
+  document.getElementById('confirmModal').classList.remove('show');
+  if (confirmResolve) { confirmResolve(result); confirmResolve = null; }
+}
+
+// ============================================================
+//  Toast
+// ============================================================
+let toastUndoFn = null;
+let toastTimer = null;
+function showUndoToast(msg, undoFn) {
+  const t = document.getElementById('toast');
+  document.getElementById('toastMsg').textContent = msg;
+  const btn = document.getElementById('toastUndoBtn');
+  toastUndoFn = undoFn;
+  btn.style.display = undoFn ? 'inline' : 'none';
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.classList.remove('show'); toastUndoFn = null; }, 5000);
+}
+function showToast(msg) { showUndoToast(msg, null); }
+document.getElementById('toastUndoBtn').onclick = () => {
+  if (toastUndoFn) { toastUndoFn(); toastUndoFn = null; }
+  document.getElementById('toast').classList.remove('show');
+  clearTimeout(toastTimer);
+};
+
+// ============================================================
+//  Settings / backup
+// ============================================================
+function openSettings() {
+  document.getElementById('settingsOverlay').style.display = 'block';
+  document.getElementById('settingsPanel').style.display = 'block';
+}
+function closeSettings() {
+  document.getElementById('settingsOverlay').style.display = 'none';
+  document.getElementById('settingsPanel').style.display = 'none';
+}
+function blobToDataURL(blob) {
+  return new Promise(resolve => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.readAsDataURL(blob);
+  });
+}
+async function dataURLToBlob(dataURL) {
+  const res = await fetch(dataURL);
+  return res.blob();
+}
+async function exportBackup() {
+  const payload = {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    genres,
+    items: await Promise.all(items.map(async it => ({
+      id: it.id, genreId: it.genreId, name: it.name, memo: it.memo, price: it.price,
+      priceType: it.priceType, url: it.url, order: it.order, createdAt: it.createdAt,
+      photo: it.photo ? await blobToDataURL(it.photo) : null,
+    }))),
+  };
+  const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  const d = new Date();
+  a.download = `sake-backup-${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  closeSettings();
+  showToast('バックアップを書き出しました');
+}
+async function importBackup(event) {
+  const file = event.target.files[0];
+  event.target.value = '';
+  if (!file) return;
+  let payload;
+  try { payload = JSON.parse(await file.text()); }
+  catch (e) { showToast('ファイルを読み込めませんでした'); return; }
+  if (!payload || !Array.isArray(payload.genres) || !Array.isArray(payload.items)) {
+    showToast('バックアップファイルの形式が正しくありません');
+    return;
+  }
+  const ok = await askConfirm('現在のデータをすべて上書きします。よろしいですか？');
+  if (!ok) return;
+
+  const prevGenres = genres, prevItems = items;
+  const newItems = await Promise.all(payload.items.map(async it => ({
+    ...it, photo: it.photo ? await dataURLToBlob(it.photo) : null,
+  })));
+
+  await clearStore('genres');
+  await clearStore('items');
+  for (const g of payload.genres) await put('genres', g);
+  for (const it of newItems) await put('items', it);
+
+  genres = payload.genres;
+  items = newItems;
+  closeSettings();
+  browseStack = [{ type: 'genres' }];
+  renderBrowse();
+  showUndoToast('バックアップを読み込みました', async () => {
+    await clearStore('genres');
+    await clearStore('items');
+    for (const g of prevGenres) await put('genres', g);
+    for (const it of prevItems) await put('items', it);
+    genres = prevGenres;
+    items = prevItems;
+    browseStack = [{ type: 'genres' }];
+    renderBrowse();
+  });
+}
+
+// ============================================================
+//  Init
+// ============================================================
+async function seedDefaultGenres() {
+  if (localStorage.getItem('sakelog_seeded')) return;
+  localStorage.setItem('sakelog_seeded', '1');
+  const names = ['ワイン', '日本酒', 'ビール', 'ウィスキー', '焼酎', 'ジン', 'カクテル'];
+  for (let i = 0; i < names.length; i++) {
+    const g = { id: crypto.randomUUID(), name: names[i], order: i };
+    await put('genres', g);
+    genres.push(g);
+  }
+}
+
+window.addEventListener('DOMContentLoaded', async () => {
+  await openDB();
+  genres = await getAll('genres');
+  items = await getAll('items');
+  if (genres.length === 0) await seedDefaultGenres();
+
+  document.getElementById('cropCanvas').addEventListener('pointerdown', onCropPointerDown);
+  window.addEventListener('pointermove', onCropPointerMove);
+  window.addEventListener('pointerup', onCropPointerUp);
+
+  updateGenreFieldLabel();
+  switchTab('input');
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('service-worker.js').catch(() => {});
+  }
+});
+</script>
+</body>
+</html>
