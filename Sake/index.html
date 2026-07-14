@@ -2,10 +2,10 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="theme-color" content="#13A18C">
+<meta name="theme-color" content="#7FD4F5">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" href="icon-192.png">
@@ -14,10 +14,11 @@
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
 
   :root {
-    --green:       #13A18C;
-    --green-mid:   #0D9882;
-    --green-light: #E0F5F2;
-    --green-pale:  #EFF9F7;
+    --accent:      #7FD4F5;
+    --accent-mid:  #4FBCE8;
+    --accent-light:#E4F6FD;
+    --accent-pale: #F1FAFE;
+    --accent-ink:  #0B4A66;
     --danger:      #E74C3C;
     --danger-bg:   #FDEBEA;
     --text:        #1A1D2E;
@@ -26,15 +27,17 @@
     --bg:          #E8EBF0;
     --border:      #C4C9D4;
     --shadow:      0 1px 4px rgba(0,0,0,0.08);
+    --nav-h:       68px;
+    --actions-h:   62px;
   }
 
-  html, body { height: 100%; }
+  html, body { height: 100%; overscroll-behavior-y: contain; }
   body {
     font-family: "メイリオ", Meiryo, sans-serif;
     background: var(--white);
     color: var(--text);
     min-height: 100vh;
-    padding-bottom: calc(68px + env(safe-area-inset-bottom));
+    padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
   }
   button, input, textarea { font-family: inherit; }
 
@@ -81,66 +84,85 @@
     align-items: center;
     gap: 2px;
   }
-  nav button.active { color: var(--green); }
+  nav {
+    -webkit-transform: translateZ(0); transform: translateZ(0);
+  }
+  nav button.active { color: var(--accent-ink); }
   nav button svg { display: block; }
 
   /* ---- Tab Panels ---- */
   .tab { display: none; }
   .tab.active { display: block; }
 
-  /* ---- Form ---- */
-  .form { padding: 16px; display: flex; flex-direction: column; gap: 18px; }
-  .form-group { display: flex; flex-direction: column; gap: 6px; }
-  .form-group label { font-size: 12px; color: var(--text2); font-weight: bold; }
+  /* ---- Form (line-based, no card boxes) ---- */
+  .form { padding: 4px 16px 0; display: flex; flex-direction: column; }
+  .form-group {
+    display: flex; flex-direction: column; gap: 4px;
+    padding: 10px 0; border-bottom: 1px solid var(--border);
+  }
+  .form-group label { font-size: 11px; color: var(--text2); font-weight: bold; }
   .req { color: var(--danger); margin-left: 2px; }
   .form-input {
-    width: 100%; border: 1px solid var(--border); border-radius: 8px;
-    padding: 12px; font-size: 15px; outline: none; color: var(--text); background: var(--white);
+    width: 100%; border: none; padding: 4px 0; font-size: 15px; outline: none;
+    color: var(--text); background: none;
   }
-  .form-input:focus { border-color: var(--green); }
   textarea.form-input { resize: vertical; }
   .field-warning { color: var(--danger); font-size: 12px; }
   .field-hint { color: var(--text2); font-size: 12px; }
 
   .picker-btn {
     width: 100%; display: flex; align-items: center; justify-content: space-between;
-    border: 1px solid var(--border); border-radius: 8px; padding: 12px;
-    background: var(--white); font-size: 15px; color: var(--text); cursor: pointer;
+    border: none; padding: 4px 0;
+    background: none; font-size: 15px; color: var(--text); cursor: pointer;
   }
   .picker-placeholder { color: var(--text2); }
   .picker-chevron { color: var(--text2); font-size: 16px; }
 
+  .photo-row { display: flex; align-items: center; gap: 12px; }
   .photo-picker {
-    width: 140px; height: 140px; border: 2px dashed var(--border); border-radius: 12px;
+    width: 84px; height: 84px; border: 1px dashed var(--border); border-radius: 4px;
     display: flex; align-items: center; justify-content: center; cursor: pointer;
-    overflow: hidden; background: var(--bg); color: var(--text2); font-size: 12px; text-align: center;
+    overflow: hidden; background: var(--white); color: var(--text2); font-size: 11px; text-align: center;
+    flex-shrink: 0;
   }
   .photo-picker img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .photo-hint { font-size: 11px; color: var(--text2); }
 
-  .price-row { display: flex; gap: 8px; }
-  .price-input { flex: 1; }
-  .segmented { display: flex; gap: 6px; }
+  .price-row { display: flex; align-items: center; gap: 14px; }
+  .price-input { flex: 1; border: none; }
+  .segmented { display: flex; gap: 14px; }
   .segmented button {
-    border: 1px solid var(--border); background: var(--white); color: var(--text2);
-    border-radius: 8px; padding: 0 14px; font-size: 13px; cursor: pointer;
+    border: none; border-bottom: 2px solid transparent; background: none; color: var(--text2);
+    padding: 2px 0; font-size: 13px; cursor: pointer;
   }
-  .segmented button.active { background: var(--green); color: var(--white); border-color: var(--green); }
+  .segmented button.active { color: var(--accent-ink); border-color: var(--accent); font-weight: bold; }
 
-  .form-actions { display: flex; gap: 10px; padding: 4px 16px 24px; }
-  .btn-save {
-    flex: 1; background: var(--green); color: var(--white); border: none; border-radius: 8px;
-    padding: 14px; font-size: 15px; font-weight: bold; cursor: pointer;
+  .stars-row { display: flex; gap: 6px; font-size: 22px; line-height: 1; }
+  .star { cursor: pointer; color: var(--border); }
+  .star.filled { color: var(--accent-mid); }
+
+  /* ---- Save/reset bar: fixed above bottom nav ---- */
+  .form-actions {
+    position: fixed; left: 0; right: 0; bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
+    display: flex; gap: 8px; padding: 10px 16px;
+    background: var(--white); border-top: 1px solid var(--border);
+    z-index: 90;
+    -webkit-transform: translateZ(0); transform: translateZ(0);
   }
-  .btn-cancel-edit {
+  .btn-save {
+    flex: 1; background: var(--accent); color: var(--text); border: none; border-radius: 8px;
+    padding: 13px; font-size: 15px; font-weight: bold; cursor: pointer;
+  }
+  .btn-reset, .btn-cancel-edit {
     background: none; color: var(--text2); border: 1px solid var(--border); border-radius: 8px;
-    padding: 14px 18px; font-size: 14px; cursor: pointer;
+    padding: 13px 16px; font-size: 14px; cursor: pointer;
   }
 
   /* ---- Browse: genre grid ---- */
-  .genre-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; padding: 16px; }
+  .genre-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1px; padding: 1px; background: var(--border); }
   .genre-tile {
-    background: var(--white); border: 1px solid var(--border); border-radius: 12px;
-    padding: 22px 12px; text-align: center; box-shadow: var(--shadow); cursor: pointer;
+    background: var(--white); border: none; border-radius: 0;
+    padding: 22px 12px; text-align: center; cursor: pointer;
   }
   .genre-tile-name { font-weight: bold; font-size: 15px; }
   .genre-tile-count { color: var(--text2); font-size: 12px; margin-top: 4px; }
@@ -148,11 +170,15 @@
   /* ---- Browse: item grid ---- */
   .item-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; padding: 2px; }
   .item-tile { cursor: pointer; }
-  .item-tile-photo { aspect-ratio: 1 / 1; background: var(--bg); overflow: hidden; }
+  .item-tile-photo { aspect-ratio: 1 / 1; background: var(--bg); overflow: hidden; position: relative; }
   .item-tile-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .item-tile-placeholder {
     width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
-    background: var(--green-pale); color: var(--green); font-size: 22px; font-weight: bold;
+    background: var(--accent-pale); color: var(--accent-ink); font-size: 22px; font-weight: bold;
+  }
+  .item-tile-rating {
+    position: absolute; left: 2px; bottom: 2px; background: rgba(0,0,0,0.55); color: #fff;
+    font-size: 9px; padding: 1px 4px; border-radius: 3px; letter-spacing: 0.5px;
   }
   .item-tile-name {
     font-size: 11px; padding: 4px 3px; text-align: center; overflow: hidden;
@@ -164,30 +190,31 @@
   .detail-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .detail-photo-placeholder {
     width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
-    background: var(--green-pale); color: var(--green); font-size: 48px; font-weight: bold;
+    background: var(--accent-pale); color: var(--accent-ink); font-size: 48px; font-weight: bold;
   }
   .detail-body { padding: 18px 16px; }
-  .detail-genre { font-size: 12px; color: var(--green); font-weight: bold; }
-  .detail-name { font-size: 20px; margin: 4px 0 10px; }
+  .detail-genre { font-size: 12px; color: var(--accent-ink); font-weight: bold; }
+  .detail-name { font-size: 20px; margin: 4px 0 8px; }
+  .detail-rating { font-size: 16px; color: var(--border); margin-bottom: 10px; letter-spacing: 2px; }
+  .detail-rating .filled { color: var(--accent-mid); }
   .detail-price { font-size: 17px; font-weight: bold; margin-bottom: 10px; }
   .detail-price-type {
     font-size: 11px; color: var(--text2); margin-left: 8px; font-weight: normal;
-    background: var(--bg); padding: 2px 9px; border-radius: 10px;
+    background: var(--bg); padding: 2px 9px; border-radius: 4px;
   }
   .detail-memo { white-space: pre-wrap; color: var(--text); margin-bottom: 14px; line-height: 1.7; font-size: 14px; }
   .detail-link, .detail-link-plain { display: block; margin-bottom: 18px; word-break: break-all; font-size: 13px; }
-  .detail-link { color: var(--green); }
+  .detail-link { color: var(--accent-ink); }
   .detail-link-plain { color: var(--text2); }
   .detail-actions { display: flex; gap: 8px; }
   .btn-edit, .btn-delete {
-    flex: 1; border: none; border-radius: 8px; padding: 13px; font-weight: bold; font-size: 14px; cursor: pointer;
+    flex: 1; background: none; border: 1px solid var(--border); border-radius: 6px;
+    padding: 13px; font-weight: bold; font-size: 14px; cursor: pointer; color: var(--text);
   }
-  .btn-edit { background: var(--green-light); color: var(--green); }
-  .btn-delete { background: var(--danger-bg); color: var(--danger); }
 
   .empty-state { padding: 70px 20px; text-align: center; color: var(--text2); font-size: 13px; }
 
-  /* ---- Selection Sheet (genre picker / manage, settings) ---- */
+  /* ---- Selection Sheet (genre picker / manage, settings, photo actions) ---- */
   .sel-sheet-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.25); z-index: 520; }
   .sel-sheet-panel {
     position: fixed; bottom: 0; left: 0; right: 0;
@@ -202,28 +229,29 @@
     border-bottom: 1px solid var(--border); background: var(--bg);
     border-radius: 14px 14px 0 0; position: sticky; top: 0;
   }
-  .sel-sheet-manage-link { color: var(--green); font-size: 13px; font-weight: bold; cursor: pointer; }
+  .sel-sheet-manage-link { color: var(--accent-ink); font-size: 13px; font-weight: bold; cursor: pointer; }
   .sel-row { padding: 14px 16px; border-bottom: 1px solid var(--border); font-size: 15px; cursor: pointer; }
-  .sel-row-add { color: var(--green); font-weight: bold; }
+  .sel-row-add { color: var(--accent-ink); font-weight: bold; }
+  .sel-row-danger { color: var(--danger); }
 
   .genre-manage-row { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--border); }
-  .genre-manage-name { flex: 1; border: 1px solid var(--border); border-radius: 6px; padding: 9px 10px; font-size: 14px; }
+  .genre-manage-name { flex: 1; border: none; border-bottom: 1px solid var(--border); padding: 9px 2px; font-size: 14px; }
   .genre-manage-btns { display: flex; gap: 4px; flex-shrink: 0; }
   .genre-manage-btns button {
-    background: var(--bg); border: none; border-radius: 6px; width: 30px; height: 30px;
+    background: var(--bg); border: none; border-radius: 4px; width: 30px; height: 30px;
     font-size: 12px; color: var(--text2); cursor: pointer;
   }
   .genre-manage-btns button:disabled { opacity: 0.3; }
   .genre-manage-del { color: var(--danger) !important; }
   .genre-manage-add-confirm {
-    background: var(--green); color: var(--white); border: none; border-radius: 6px;
+    background: var(--accent); color: var(--text); border: none; border-radius: 6px;
     padding: 9px 14px; font-size: 13px; cursor: pointer; flex-shrink: 0;
   }
 
   .settings-body { padding: 16px; display: flex; flex-direction: column; gap: 10px; }
   .settings-btn {
     display: block; text-align: center; background: var(--bg); color: var(--text); border: none;
-    border-radius: 8px; padding: 14px; font-size: 14px; cursor: pointer; width: 100%;
+    border-radius: 6px; padding: 14px; font-size: 14px; cursor: pointer; width: 100%;
   }
 
   /* ---- Confirm modal ---- */
@@ -234,25 +262,25 @@
   }
   .item-action-modal.show { display: flex; }
   .item-action-card {
-    background: var(--white); border-radius: 14px;
+    background: var(--white); border-radius: 10px;
     padding: 22px 20px 18px; margin: 0 24px;
     width: calc(100% - 48px); max-width: 360px;
   }
   .item-action-card-title { font-size: 14px; color: var(--text); text-align: center; margin-bottom: 18px; line-height: 1.6; }
   .item-action-btns { display: flex; gap: 8px; }
-  .item-action-btn { flex: 1; padding: 11px 4px; border: none; border-radius: 8px; font-size: 13px; font-weight: bold; cursor: pointer; }
+  .item-action-btn { flex: 1; padding: 11px 4px; border: none; border-radius: 6px; font-size: 13px; font-weight: bold; cursor: pointer; }
   .ia-cancel { background: var(--bg); color: var(--text2); }
   .ia-ok { background: var(--danger-bg); color: var(--danger); }
 
   /* ---- Toast ---- */
   .toast {
-    position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+    position: fixed; bottom: calc(var(--nav-h) + var(--actions-h) + 12px); left: 50%; transform: translateX(-50%);
     background: var(--text); color: var(--white); padding: 10px 18px; border-radius: 22px;
     font-size: 13px; opacity: 0; transition: opacity 0.3s; z-index: 400; pointer-events: none;
     white-space: nowrap; display: flex; align-items: center; gap: 12px;
   }
   .toast.show { opacity: 1; }
-  .toast-undo { background: none; border: none; color: #7FE0D0; font-weight: bold; font-size: 13px; text-decoration: underline; pointer-events: auto; cursor: pointer; padding: 0; }
+  .toast-undo { background: none; border: none; color: #9FE3F8; font-weight: bold; font-size: 13px; text-decoration: underline; pointer-events: auto; cursor: pointer; padding: 0; }
 
   /* ---- Crop modal ---- */
   .crop-overlay { position: fixed; inset: 0; background: #000; z-index: 700; display: none; flex-direction: column; }
@@ -298,16 +326,24 @@
 
       <div class="form-group">
         <label>写真</label>
-        <div class="photo-picker" id="photoPicker" onclick="triggerPhotoPick()">
-          <img id="photoPreview" style="display:none">
-          <span id="photoPlaceholder">＋ 写真を選ぶ</span>
+        <div class="photo-row">
+          <div class="photo-picker" id="photoPicker" onclick="onPhotoPickerClick()">
+            <img id="photoPreview" style="display:none">
+            <span id="photoPlaceholder">＋ 写真を選ぶ</span>
+          </div>
+          <span class="photo-hint" id="photoHint" style="display:none">タップして削除・トリム調整</span>
         </div>
         <input type="file" id="photoInput" accept="image/*" style="display:none" onchange="onPhotoSelected(event)">
       </div>
 
       <div class="form-group">
+        <label>評価</label>
+        <div class="stars-row" id="starsRow"></div>
+      </div>
+
+      <div class="form-group">
         <label>メモ</label>
-        <textarea id="memoInput" class="form-input" rows="3" placeholder="味の感想など"></textarea>
+        <textarea id="memoInput" class="form-input" rows="2" placeholder="味の感想など"></textarea>
       </div>
 
       <div class="form-group">
@@ -315,9 +351,8 @@
         <div class="price-row">
           <input type="number" id="priceInput" class="form-input price-input" placeholder="円" inputmode="numeric" min="0">
           <div class="segmented" id="priceTypeSeg">
-            <button type="button" data-v="店" onclick="selectPriceType('店')">店</button>
-            <button type="button" data-v="購入" onclick="selectPriceType('購入')">購入</button>
-            <button type="button" data-v="その他" onclick="selectPriceType('その他')">その他</button>
+            <button type="button" data-v="一杯価格" onclick="selectPriceType('一杯価格')">一杯価格</button>
+            <button type="button" data-v="購入価格" onclick="selectPriceType('購入価格')">購入価格</button>
           </div>
         </div>
         <div class="field-warning" id="priceTypeWarning" style="display:none">価格の種類を選んでください</div>
@@ -331,6 +366,7 @@
     </div>
     <div class="form-actions">
       <button type="button" class="btn-cancel-edit" id="cancelEditBtn" style="display:none" onclick="cancelEdit()">キャンセル</button>
+      <button type="button" class="btn-reset" onclick="onResetClick()">リセット</button>
       <button type="button" class="btn-save" onclick="saveItem()">保存</button>
     </div>
   </div>
@@ -364,6 +400,15 @@
     <span class="sel-sheet-manage-link" id="genreSheetManageLink" onclick="toggleGenreManageMode()">編集</span>
   </div>
   <div id="genreSheetList"></div>
+</div>
+
+<!-- Photo action sheet -->
+<div id="photoActionOverlay" class="sel-sheet-overlay" style="display:none" onclick="closePhotoActionSheet()"></div>
+<div id="photoActionPanel" class="sel-sheet-panel" style="display:none">
+  <div class="sel-sheet-title-bar"><span>写真</span></div>
+  <div class="sel-row" onclick="recropExistingPhoto()">トリム調整</div>
+  <div class="sel-row" onclick="triggerPhotoPick()">新しい写真を選ぶ</div>
+  <div class="sel-row sel-row-danger" onclick="deleteExistingPhoto()">削除</div>
 </div>
 
 <!-- Settings sheet -->
@@ -474,6 +519,7 @@ let browseStack = [{ type: 'genres' }];
 
 let selectedGenreId = null;
 let selectedPriceType = null;
+let selectedRating = 0;
 let editingItemId = null;
 let pendingPhotoBlob = null;
 let pendingPhotoChanged = false;
@@ -570,8 +616,14 @@ function renderItemGridHTML(genreId) {
 }
 function itemTilePhotoHTML(it) {
   const url = photoUrlFor(it);
-  if (url) return `<img src="${url}" alt="">`;
-  return `<div class="item-tile-placeholder">${esc((it.name || '?').charAt(0))}</div>`;
+  const ratingHtml = it.rating ? `<span class="item-tile-rating">★${it.rating}</span>` : '';
+  if (url) return `<img src="${url}" alt="">${ratingHtml}`;
+  return `<div class="item-tile-placeholder">${esc((it.name || '?').charAt(0))}</div>${ratingHtml}`;
+}
+function starsHTML(rating) {
+  let html = '';
+  for (let i = 1; i <= 5; i++) html += `<span class="${i <= rating ? 'filled' : ''}">${i <= rating ? '★' : '☆'}</span>`;
+  return html;
 }
 
 function renderDetailHTML(itemId) {
@@ -580,6 +632,7 @@ function renderDetailHTML(itemId) {
   const g = genreById(it.genreId);
   const url = photoUrlFor(it);
   const photoHtml = url ? `<img src="${url}" alt="">` : `<div class="detail-photo-placeholder">${esc((it.name || '?').charAt(0))}</div>`;
+  const ratingHtml = it.rating ? `<div class="detail-rating">${starsHTML(it.rating)}</div>` : '';
   const priceHtml = it.price ? `<div class="detail-price">¥${fmt(it.price)}${it.priceType ? `<span class="detail-price-type">${esc(it.priceType)}</span>` : ''}</div>` : '';
   const memoHtml = it.memo ? `<div class="detail-memo">${esc(it.memo)}</div>` : '';
   let linkHtml = '';
@@ -593,6 +646,7 @@ function renderDetailHTML(itemId) {
     <div class="detail-body">
       <div class="detail-genre">${esc(g ? g.name : '')}</div>
       <h2 class="detail-name">${esc(it.name)}</h2>
+      ${ratingHtml}
       ${priceHtml}
       ${memoHtml}
       ${linkHtml}
@@ -736,6 +790,18 @@ function selectPriceType(v) {
 function updatePriceTypeButtons() {
   document.querySelectorAll('#priceTypeSeg button').forEach(b => b.classList.toggle('active', b.dataset.v === selectedPriceType));
 }
+function renderStars() {
+  const row = document.getElementById('starsRow');
+  let html = '';
+  for (let i = 1; i <= 5; i++) {
+    html += `<span class="star${i <= selectedRating ? ' filled' : ''}" onclick="selectStar(${i})">${i <= selectedRating ? '★' : '☆'}</span>`;
+  }
+  row.innerHTML = html;
+}
+function selectStar(n) {
+  selectedRating = (selectedRating === n) ? 0 : n;
+  renderStars();
+}
 function checkUrlHint() {
   const v = document.getElementById('urlInput').value.trim();
   document.getElementById('urlWarning').style.display = (v && !safeUrl(v)) ? 'block' : 'none';
@@ -766,6 +832,7 @@ async function saveItem() {
     id: isEdit ? editingItemId : crypto.randomUUID(),
     genreId: selectedGenreId,
     name, memo,
+    rating: selectedRating,
     price: price,
     priceType: price ? selectedPriceType : null,
     url,
@@ -787,6 +854,7 @@ function resetForm() {
   editingItemId = null;
   selectedGenreId = null;
   selectedPriceType = null;
+  selectedRating = 0;
   pendingPhotoBlob = null;
   pendingPhotoChanged = false;
   updateGenreFieldLabel();
@@ -795,6 +863,7 @@ function resetForm() {
   document.getElementById('priceInput').value = '';
   document.getElementById('urlInput').value = '';
   updatePriceTypeButtons();
+  renderStars();
   clearPhotoPreview();
   document.getElementById('genreWarning').style.display = 'none';
   document.getElementById('nameWarning').style.display = 'none';
@@ -803,6 +872,25 @@ function resetForm() {
   document.getElementById('cancelEditBtn').style.display = 'none';
   document.querySelector('.btn-save').textContent = '保存';
   updateHeader();
+}
+function isFormDirty() {
+  return !!(
+    selectedGenreId || selectedRating ||
+    document.getElementById('nameInput').value.trim() ||
+    document.getElementById('memoInput').value.trim() ||
+    document.getElementById('priceInput').value ||
+    document.getElementById('urlInput').value.trim() ||
+    previewUrl
+  );
+}
+async function onResetClick() {
+  if (isFormDirty()) {
+    const ok = await askConfirm('入力内容をリセットしますか？');
+    if (!ok) return;
+  }
+  const wasEdit = !!editingItemId;
+  resetForm();
+  if (wasEdit) switchTab('browse');
 }
 function cancelEdit() {
   resetForm();
@@ -818,6 +906,8 @@ function startEdit(id) {
   document.getElementById('priceInput').value = it.price || '';
   selectedPriceType = it.priceType;
   updatePriceTypeButtons();
+  selectedRating = it.rating || 0;
+  renderStars();
   document.getElementById('urlInput').value = it.url || '';
   document.getElementById('urlWarning').style.display = 'none';
   pendingPhotoChanged = false;
@@ -846,7 +936,43 @@ async function confirmDeleteItem(id) {
 // ============================================================
 //  Photo select + crop
 // ============================================================
-function triggerPhotoPick() { document.getElementById('photoInput').click(); }
+function triggerPhotoPick() {
+  closePhotoActionSheet();
+  document.getElementById('photoInput').click();
+}
+function currentPhotoBlob() {
+  if (pendingPhotoChanged) return pendingPhotoBlob;
+  if (editingItemId) { const it = itemById(editingItemId); return it ? it.photo : null; }
+  return null;
+}
+function onPhotoPickerClick() {
+  if (currentPhotoBlob()) openPhotoActionSheet();
+  else triggerPhotoPick();
+}
+function openPhotoActionSheet() {
+  document.getElementById('photoActionOverlay').style.display = 'block';
+  document.getElementById('photoActionPanel').style.display = 'block';
+}
+function closePhotoActionSheet() {
+  document.getElementById('photoActionOverlay').style.display = 'none';
+  document.getElementById('photoActionPanel').style.display = 'none';
+}
+function recropExistingPhoto() {
+  const blob = currentPhotoBlob();
+  closePhotoActionSheet();
+  if (!blob) return;
+  const url = URL.createObjectURL(blob);
+  const img = new Image();
+  img.onload = () => openCrop(img, url);
+  img.onerror = () => { showToast('この画像は読み込めませんでした'); URL.revokeObjectURL(url); };
+  img.src = url;
+}
+function deleteExistingPhoto() {
+  closePhotoActionSheet();
+  pendingPhotoBlob = null;
+  pendingPhotoChanged = true;
+  clearPhotoPreview();
+}
 
 function onPhotoSelected(e) {
   const file = e.target.files[0];
@@ -939,6 +1065,7 @@ function setPhotoPreview(blob) {
   img.src = previewUrl;
   img.style.display = 'block';
   ph.style.display = 'none';
+  document.getElementById('photoHint').style.display = 'block';
 }
 function clearPhotoPreview() {
   const img = document.getElementById('photoPreview');
@@ -947,6 +1074,7 @@ function clearPhotoPreview() {
   img.src = '';
   img.style.display = 'none';
   ph.style.display = 'block';
+  document.getElementById('photoHint').style.display = 'none';
 }
 
 // ============================================================
@@ -1098,6 +1226,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   window.addEventListener('pointerup', onCropPointerUp);
 
   updateGenreFieldLabel();
+  renderStars();
   switchTab('input');
 
   if ('serviceWorker' in navigator) {
