@@ -50,9 +50,14 @@ ws.addEventListener('open', async () => {
         if (r.exceptionDetails) throw new Error(JSON.stringify(r.exceptionDetails));
         return r.result.value;
       },
-      mouseMove: (x, y) => send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y }),
-      mouseDown: (x, y) => send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 }),
-      mouseUp: (x, y) => send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 }),
+      // modifiers is the CDP bitmask: Alt=1, Ctrl=2, Meta/Command=4, Shift=8.
+      // clickCount matters for double-click: Chromium only synthesizes a native
+      // 'dblclick' event if the second press/release pair is sent with clickCount:2 —
+      // two separate clickCount:1 pairs, even close together in time, do NOT combine
+      // into a double-click the way real hardware input does.
+      mouseMove: (x, y, modifiers) => send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, modifiers }),
+      mouseDown: (x, y, modifiers, clickCount) => send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: clickCount || 1, modifiers }),
+      mouseUp: (x, y, modifiers, clickCount) => send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: clickCount || 1, modifiers }),
       wheel: (x, y, deltaX, deltaY) => send('Input.dispatchMouseEvent', { type: 'mouseWheel', x, y, deltaX, deltaY }),
       sleep: (ms) => new Promise(r => setTimeout(r, ms)),
     };

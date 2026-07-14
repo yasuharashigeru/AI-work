@@ -59,10 +59,16 @@
     line-height: 1;
   }
   .navBtn:hover { color: var(--text); }
+  #rightControls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    justify-self: end;
+  }
+  #todayBtn { font-size: 13px; padding: 4px 8px; }
   #viewToggle {
     display: flex;
     gap: 2px;
-    justify-self: end;
   }
   .viewBtn {
     background: none;
@@ -269,7 +275,7 @@
     outline: none;
     min-width: 160px;
   }
-  .warningPopover { font-size: 12px; color: #C0392B; max-width: 200px; }
+  .warningPopover { font-size: 12px; color: #C0392B; max-width: 200px; white-space: pre-line; }
 
   /* ---- floating popovers ---- */
   .floatingPopover {
@@ -343,7 +349,7 @@
     border-radius: 4px;
     padding: 4px 6px;
   }
-  .rangeWarning { font-size: 11px; color: #C0392B; margin-bottom: 6px; display: none; }
+  .rangeWarning { font-size: 11px; color: #C0392B; margin-bottom: 6px; display: none; white-space: pre-line; }
   .swatchRow { display: flex; gap: 6px; margin-bottom: 6px; }
   .swatchRow .swatch.selected { outline: 2px solid var(--text); outline-offset: 1px; }
   .detailItem input[type="time"], .detailItem input[type="text"], .detailItem textarea {
@@ -382,10 +388,13 @@
     <span id="monthLabel">----.--</span>
     <button class="navBtn" id="nextMonthBtn">&gt;</button>
   </div>
-  <div id="viewToggle">
-    <button class="viewBtn" data-months="1">1</button>
-    <button class="viewBtn" data-months="2">2</button>
-    <button class="viewBtn" data-months="3">3</button>
+  <div id="rightControls">
+    <button class="navBtn" id="todayBtn">Today</button>
+    <div id="viewToggle">
+      <button class="viewBtn" data-months="1">1</button>
+      <button class="viewBtn" data-months="2">2</button>
+      <button class="viewBtn" data-months="3">3</button>
+    </div>
   </div>
 </div>
 <div id="gridScroll">
@@ -415,7 +424,7 @@ let saveTimer = null;
 function defaultData() {
   return {
     version: 1,
-    palette: ['#FFF3B0', '#CDEFFB', '#FBD8D8', '#D8F5D8', '#E3E3E3'],
+    palette: ['#FFF3B0', '#CDEFFB', '#FBD8D8', '#D8F5D8', '#E3E3E3', '#E5D8F5'],
     singles: {},
     bands: [],
     viewMonths: 1,
@@ -446,6 +455,8 @@ async function loadData() {
     data = defaultData();
   }
   if (!data.dayOverrides) data.dayOverrides = {};
+  if (!data.palette) data.palette = defaultData().palette;
+  else if (data.palette.length < 6) data.palette.push('#E5D8F5');
   migrateLanes();
 }
 
@@ -527,7 +538,8 @@ function deleteBand(id) {
   rerenderAllBands();
 }
 // Lowest lane (0..BAND_LANES-1) not occupied by any other band overlapping this date range;
-// -1 if all lanes are taken (shouldn't happen once bandWouldOverflow has already been checked).
+// -1 if all lanes are taken. Used only as a rendering hint for ephemeral drag previews —
+// planBandLanes() below does the real (correct) assignment once a change is committed.
 function assignFreeLane(candidateStart, candidateEnd, ignoreId) {
   const usedLanes = new Set();
   let d = new Date(candidateStart);
@@ -539,13 +551,6 @@ function assignFreeLane(candidateStart, candidateEnd, ignoreId) {
   }
   for (let lane = 0; lane < BAND_LANES; lane++) if (!usedLanes.has(lane)) return lane;
   return -1;
-}
-// Keeps a moved/resized band in its current lane if that lane is still free for the new
-// range (stable ordering); only hops to a different free lane if its own lane now conflicts.
-function resolveLaneForBand(band, newStart, newEnd) {
-  const conflict = data.bands.some(b => b.id !== band.id && b.lane === band.lane && b.start <= newEnd && b.end >= newStart);
-  if (!conflict) return band.lane;
-  return assignFreeLane(newStart, newEnd, band.id);
 }
 // Greedy lane assignment (earliest start first) capped at 3 lanes; returns Map(band -> laneIndex, -1 = overflow)
 function assignLanes(list) {
@@ -566,19 +571,69 @@ function assignLanes(list) {
   }
   return laneOf;
 }
-function bandWouldOverflow(candidate, ignoreId) {
-  // A new band must be rejected if it would push any single date past 3 overlapping bands.
-  // (Checked per-date directly, rather than via lane tie-break, so an existing committed
-  // band can never be the one silently bumped out by the tie-break order.)
-  let d = new Date(candidate.start);
-  const end = new Date(candidate.end);
-  while (d <= end) {
-    const ds = toDs(d);
-    const count = data.bands.filter(b => b.id !== ignoreId && b.start <= ds && ds <= b.end).length;
-    if (count >= BAND_LANES) return true;
-    d = addDays(d, 1);
+// Attempts to fit `candidate` (a {id, start, end[, lane]} descriptor — id may belong to
+// a band already in data.bands, being resized/moved, or to a brand-new one not yet
+// added) into the schedule. A naive "reject if any single day already has 3 other bands,
+// else keep my lane or grab any other free one" check can still fail even when every
+// individual day has room, because no *single* lane may stay free across the whole new
+// range while other bands occupy different lanes on different sub-ranges within it —
+// that left a band with
+// lane -1, which silently stops rendering (a real bug: a band must never just vanish).
+// This instead re-solves lane assignment for the whole chain-connected group of bands
+// whose ranges overlap candidate's, preferring each band's current lane (stable, so
+// unrelated bands don't get reshuffled) and only reassigning ("replacing") one to make
+// room when required. Returns a Map<bandId, lane> to apply on success, or null if it
+// truly doesn't fit within BAND_LANES lanes even after repacking — callers must alert
+// and abandon the change rather than ever committing a lane of -1.
+function planBandLanes(candidate) {
+  const relevant = new Map();
+  relevant.set(candidate.id, candidate);
+  let frontier = [candidate];
+  while (frontier.length) {
+    const next = [];
+    for (const b of frontier) {
+      for (const other of data.bands) {
+        if (other.id === candidate.id || relevant.has(other.id)) continue;
+        if (other.start <= b.end && other.end >= b.start) {
+          relevant.set(other.id, other);
+          next.push(other);
+        }
+      }
+    }
+    frontier = next;
   }
-  return false;
+  const list = [...relevant.values()].sort((a, b) => a.start.localeCompare(b.start) || a.id.localeCompare(b.id));
+  const laneEnd = new Array(BAND_LANES).fill(null);
+  const laneOf = new Map();
+  for (const b of list) {
+    const preferred = b.lane;
+    let placed = -1;
+    if (preferred !== undefined && preferred >= 0 && preferred < BAND_LANES
+        && (laneEnd[preferred] === null || laneEnd[preferred] < b.start)) {
+      placed = preferred;
+    } else {
+      for (let i = 0; i < BAND_LANES; i++) {
+        if (laneEnd[i] === null || laneEnd[i] < b.start) { placed = i; break; }
+      }
+    }
+    if (placed === -1) return null;
+    laneEnd[placed] = b.end;
+    laneOf.set(b.id, placed);
+  }
+  return laneOf;
+}
+// Applies a successful planBandLanes() result: writes candidate's start/end/lane onto
+// its real data.bands entry (creating it if this is a new band) and updates every
+// other affected band's lane.
+function commitBandLanes(candidate, laneOf) {
+  let target = data.bands.find(b => b.id === candidate.id);
+  if (!target) { target = candidate; data.bands.push(target); }
+  target.start = candidate.start;
+  target.end = candidate.end;
+  for (const [id, lane] of laneOf) {
+    const b = id === candidate.id ? target : data.bands.find(x => x.id === id);
+    if (b) b.lane = lane;
+  }
 }
 
 // ---- date helpers ----
@@ -626,8 +681,9 @@ function cellIsWeekend(date) {
 // ---- state ----
 let today = stripTime(new Date());
 const BUFFER = 5;       // weeks buffered above/below, fixed regardless of view density
+const VISIBLE_BY_MONTHS = { 1: 5, 2: 10, 3: 14 }; // rows needed to cover N months of week-rows
 let monthViewCount = 1; // 1, 2, or 3 — how many months' worth of weeks are shown at once
-let VISIBLE = monthViewCount * 5; // weeks visible in viewport
+let VISIBLE = VISIBLE_BY_MONTHS[monthViewCount]; // weeks visible in viewport
 let CAP = VISIBLE + BUFFER * 2;   // total resident week-rows
 
 const gridScroll = document.getElementById('gridScroll');
@@ -641,6 +697,7 @@ let previewBand = null;     // ephemeral drag-preview band, not persisted
 let composingBand = null;   // just-drawn band awaiting its name; rendered but not yet in data.bands
 let activeBandDragId = null;  // id of the band currently hidden in favor of bandDragPreview (resize or move)
 let bandDragPreview = null;   // live opaque clone shown while dragging a band's edge or body
+let bandCopyPreview = null;   // ghost of the band being Ctrl+dragged as a copy — original stays visible
 const EDGE_HOTSPOT = 6;     // px from a bandBar's real start/end edge that grabs for resize
 let selectedRef = null;     // { kind: 'single'|'band', ds?, id } — click-selected event, Delete/arrow-key target
 let hoverTooltipEl = null;
@@ -752,7 +809,7 @@ function renderCellEvents(cell, ds) {
     row.style.background = data.palette[ev.color];
     row.textContent = ev.text;
     row.dataset.id = ev.id;
-    row.addEventListener('mouseenter', () => { if (gesture.mode === 'idle') showHoverTooltip(row, ev); });
+    row.addEventListener('mouseenter', () => { if (gesture.mode === 'idle' && !selected) showHoverTooltip(row, ev); });
     row.addEventListener('mouseleave', hideHoverTooltip);
     row.addEventListener('mousedown', (e) => onEventRowMouseDown(e, ds, ev.id, row));
     if (selected) row.appendChild(buildDeleteBadge(() => { deleteSingleEvent(ds, ev.id); clearSelection(); }));
@@ -779,7 +836,7 @@ function renderBandsForRow(rowEl, weekStart) {
   const weekStartDs = toDs(weekStart);
   const weekEndDs = toDs(addDays(weekStart, 6));
   let intersecting = data.bands.filter(b => b.id !== activeBandDragId && b.start <= weekEndDs && b.end >= weekStartDs);
-  [previewBand, composingBand, bandDragPreview].forEach(b => {
+  [previewBand, composingBand, bandDragPreview, bandCopyPreview].forEach(b => {
     if (b && b.start <= weekEndDs && b.end >= weekStartDs) intersecting = intersecting.concat([b]);
   });
   if (intersecting.length === 0) return;
@@ -797,10 +854,10 @@ function renderBandsForRow(rowEl, weekStart) {
     const endIdx = dayIndexInWeek(weekStart, clipEnd);
     const left = cells[startIdx].offsetLeft;
     const right = cells[endIdx].offsetLeft + cells[endIdx].offsetWidth;
-    const ephemeral = band === previewBand || band === composingBand || band === bandDragPreview;
+    const ephemeral = band === previewBand || band === composingBand || band === bandDragPreview || band === bandCopyPreview;
     const bar = document.createElement('div');
     bar.className = 'bandBar'
-      + (band === previewBand ? ' ghost' : '')
+      + (band === previewBand || band === bandCopyPreview ? ' ghost' : '')
       + (!ephemeral && isSelected('band', band.id) ? ' selected' : '');
     bar.dataset.id = band.id;
     bar.style.left = left + 'px';
@@ -820,7 +877,7 @@ function renderBandsForRow(rowEl, weekStart) {
     } else {
       const isStartEdge = clipStart === band.start;
       const isEndEdge = clipEnd === band.end;
-      bar.addEventListener('mouseenter', () => { if (gesture.mode === 'idle') showHoverTooltip(bar, band); });
+      bar.addEventListener('mouseenter', () => { if (gesture.mode === 'idle' && !isSelected('band', band.id)) showHoverTooltip(bar, band); });
       bar.addEventListener('mouseleave', hideHoverTooltip);
       bar.addEventListener('mousemove', (e) => {
         if (gesture.mode !== 'idle') return;
@@ -829,15 +886,17 @@ function renderBandsForRow(rowEl, weekStart) {
         bar.style.cursor = (nearStart || nearEnd) ? 'ew-resize' : 'pointer';
       });
       bar.addEventListener('mousedown', (e) => {
-        const nearStart = isStartEdge && e.offsetX <= EDGE_HOTSPOT;
-        const nearEnd = isEndEdge && e.offsetX >= bar.offsetWidth - EDGE_HOTSPOT;
-        if (nearStart || nearEnd) {
-          onBandEdgeMouseDown(e, band, nearStart ? 'start' : 'end');
-          return;
+        if (!e.ctrlKey) {
+          const nearStart = isStartEdge && e.offsetX <= EDGE_HOTSPOT;
+          const nearEnd = isEndEdge && e.offsetX >= bar.offsetWidth - EDGE_HOTSPOT;
+          if (nearStart || nearEnd) {
+            onBandEdgeMouseDown(e, band, nearStart ? 'start' : 'end');
+            return;
+          }
         }
         e.stopPropagation();
         const ds = cellDateAtPoint(e.clientX, e.clientY) || band.start;
-        beginGesture(e, ds, { kind: 'band', id: band.id });
+        beginGesture(e, ds, { kind: 'band', id: band.id, copy: e.ctrlKey });
       });
     }
     rowEl.appendChild(bar);
@@ -858,8 +917,25 @@ function closeFloating() {
 function positionPopover(pop, rect) {
   document.body.appendChild(pop);
   const left = Math.min(rect.left, window.innerWidth - pop.offsetWidth - 8);
-  pop.style.left = Math.max(4, left) + 'px';
-  pop.style.top = (rect.bottom + 4) + 'px';
+  const overflowsBottom = rect.bottom + 4 + pop.offsetHeight > window.innerHeight;
+  if (overflowsBottom) {
+    // No room below (e.g. bottom row of the grid) — center on the cell instead
+    // of letting the popover open off-screen and become unreachable.
+    positionPopoverCentered(pop, rect);
+  } else {
+    pop.style.left = Math.max(4, left) + 'px';
+    pop.style.top = (rect.bottom + 4) + 'px';
+  }
+}
+// Always centers on the cell, regardless of available room below — used for the
+// weekend-override popover, which the user wants centered on every cell, not just
+// when it would otherwise overflow off-screen.
+function positionPopoverCentered(pop, rect) {
+  if (!pop.isConnected) document.body.appendChild(pop);
+  const centeredLeft = rect.left + rect.width / 2 - pop.offsetWidth / 2;
+  const centeredTop = rect.top + rect.height / 2 - pop.offsetHeight / 2;
+  pop.style.left = Math.max(4, Math.min(centeredLeft, window.innerWidth - pop.offsetWidth - 8)) + 'px';
+  pop.style.top = Math.max(4, Math.min(centeredTop, window.innerHeight - pop.offsetHeight - 8)) + 'px';
 }
 function openPalettePicker(cell, onPick) {
   closeFloating();
@@ -912,7 +988,7 @@ function openWeekendOverridePrompt(cell, ds) {
   pop.appendChild(makeBtn('休日にする', () => setDayOverride(ds, 'holiday')));
   pop.appendChild(makeBtn('平日にする', () => setDayOverride(ds, 'weekday')));
   pop.appendChild(makeBtn('自動判定', () => setDayOverride(ds, null)));
-  positionPopover(pop, cell.getBoundingClientRect());
+  positionPopoverCentered(pop, cell.getBoundingClientRect());
   setTimeout(() => document.addEventListener('mousedown', outsideCloser, { once: true }), 0);
 }
 function setDayOverride(ds, mode) {
@@ -924,25 +1000,28 @@ function setDayOverride(ds, mode) {
   if (cell) cell.classList.toggle('weekend', cellIsWeekend(new Date(ds)));
 }
 
-// ---- palette slot customization (long-press a swatch to recolor its slot globally) ----
+// ---- palette slot customization (double-click a swatch to recolor its slot globally) ----
+// Double-click detection here is tracked manually (by slot index + timestamp) rather than
+// via the native 'dblclick' event: onSelect() typically removes or rebuilds this very swatch
+// (e.g. closeFloating() in a color-choice popover, or renderDetailList() rebuilding the whole
+// panel), so a real second click never lands on a DOM node the browser considers "the same
+// target" as the first, and native dblclick simply never fires — confirmed via CDP testing
+// (a control double-click on a stable element fired dblclick correctly; the same sequence on
+// an evtRow/swatch that gets replaced between clicks did not, even with clickCount forced).
+let lastSwatchClick = null; // { slot, time }
 function makeSwatchInteractive(swatchEl, slotIndex, onSelect) {
-  let timer = null;
-  let mode = 'idle';
-  swatchEl.addEventListener('mousedown', (e) => {
-    e.stopPropagation();
-    mode = 'pending';
-    timer = setTimeout(() => {
-      mode = 'long';
-      openSlotColorPicker(slotIndex);
-    }, LONG_PRESS_MS);
-  });
+  swatchEl.addEventListener('mousedown', (e) => e.stopPropagation());
   swatchEl.addEventListener('mouseup', (e) => {
     e.stopPropagation();
-    clearTimeout(timer);
-    if (mode === 'pending') onSelect();
-    mode = 'idle';
+    const now = Date.now();
+    if (lastSwatchClick && lastSwatchClick.slot === slotIndex && now - lastSwatchClick.time < DOUBLE_CLICK_MS) {
+      lastSwatchClick = null;
+      openSlotColorPicker(slotIndex);
+    } else {
+      lastSwatchClick = { slot: slotIndex, time: now };
+      onSelect();
+    }
   });
-  swatchEl.addEventListener('mouseleave', () => { clearTimeout(timer); mode = 'idle'; });
 }
 function rerenderAllCells() {
   gridInner.querySelectorAll('.dayCell').forEach(cell => {
@@ -991,9 +1070,10 @@ function openQuickInput(ds) {
     if (e.key === 'Enter') finish(true);
     else if (e.key === 'Escape') finish(false);
   });
-  // Clicking elsewhere should cancel, not silently commit whatever was typed so far —
-  // only Enter commits.
-  input.addEventListener('blur', () => finish(false));
+  // Clicking elsewhere commits if something was typed (so a click-away doesn't
+  // discard in-progress text); an empty input still cancels rather than
+  // creating a blank event.
+  input.addEventListener('blur', () => finish(input.value.trim().length > 0));
 }
 
 function handleNewSingleText(ds, text) {
@@ -1029,9 +1109,10 @@ function clearSelection() {
 }
 
 // ---- mouse gesture state machine ----
-const LONG_PRESS_MS = 450;
 const MOVE_THRESHOLD = 4;
+const DOUBLE_CLICK_MS = 400;
 let gesture = { mode: 'idle' };
+let lastEventClick = null; // { key: 'single:id' | 'band:id', time } — see onDocMouseUp
 
 // Geometry-based instead of elementFromPoint+closest: an ephemeral ghost/preview bar
 // or chip is often exactly what's under the cursor during a drag, and (for bandBar)
@@ -1054,18 +1135,8 @@ function cellDateAtPoint(x, y) {
 }
 
 function beginGesture(e, ds, extra) {
-  clearTimeout(gesture.timer);
   hideHoverTooltip();
-  gesture = Object.assign({ mode: 'pending', startDs: ds, startX: e.clientX, startY: e.clientY, timer: null }, extra || {});
-  gesture.timer = setTimeout(() => {
-    if (gesture.mode === 'pending') {
-      gesture.mode = 'long-press';
-      // Only an existing single/band event has anything to show — a long-press on
-      // empty cell background is a no-op (new events only come from a plain click).
-      if (gesture.kind === 'single') openDetailModal({ kind: 'single', ds: gesture.startDs, id: gesture.id });
-      else if (gesture.kind === 'band') openDetailModal({ kind: 'band', id: gesture.id });
-    }
-  }, LONG_PRESS_MS);
+  gesture = Object.assign({ mode: 'pending', startDs: ds, startX: e.clientX, startY: e.clientY }, extra || {});
   document.addEventListener('mousemove', onDocMouseMove);
   document.addEventListener('mouseup', onDocMouseUp);
 }
@@ -1087,13 +1158,12 @@ function onCellMouseDown(e, ds) {
 function onEventRowMouseDown(e, ds, id, rowEl) {
   if (e.button !== 0) return;
   e.stopPropagation();
-  beginGesture(e, ds, { kind: 'single', id, eventRow: rowEl });
+  beginGesture(e, ds, { kind: 'single', id, eventRow: rowEl, copy: e.ctrlKey });
 }
 function onBandEdgeMouseDown(e, band, edge) {
   if (e.button !== 0) return;
   e.stopPropagation();
   e.preventDefault();
-  clearTimeout(gesture.timer);
   hideHoverTooltip();
   activeBandDragId = band.id;
   bandDragPreview = { id: band.id, start: band.start, end: band.end, color: band.color, text: band.text, lane: band.lane };
@@ -1111,14 +1181,18 @@ function onDocMouseMove(e) {
   if (gesture.mode === 'idle') return;
   const dx = e.clientX - gesture.startX, dy = e.clientY - gesture.startY;
   if (gesture.mode === 'pending' && Math.hypot(dx, dy) > MOVE_THRESHOLD) {
-    clearTimeout(gesture.timer);
     if (gesture.kind === 'single') {
       gesture.mode = 'single-move-drag';
       startSingleMovePreview();
     } else if (gesture.kind === 'band') {
-      // A mostly-vertical drag reorders the band's lane; a mostly-horizontal one
-      // slides its dates. Decided once, at the moment the threshold is crossed.
-      if (Math.abs(dy) > Math.abs(dx)) {
+      if (gesture.copy) {
+        // Ctrl+drag always copies to wherever the cursor ends up (any direction) —
+        // there's no lane-reorder meaning for a band that doesn't exist yet.
+        gesture.mode = 'band-copy-drag';
+        startBandCopyPreview();
+      } else if (Math.abs(dy) > Math.abs(dx)) {
+        // A mostly-vertical drag reorders the band's lane; a mostly-horizontal one
+        // slides its dates. Decided once, at the moment the threshold is crossed.
         gesture.mode = 'band-lane-drag';
       } else {
         gesture.mode = 'band-move-drag';
@@ -1133,10 +1207,13 @@ function onDocMouseMove(e) {
     const hoverDs = cellDateAtPoint(e.clientX, e.clientY);
     if (hoverDs) updateBandPreview(gesture.startDs, hoverDs);
   } else if (gesture.mode === 'single-move-drag') {
-    updateSingleMovePreview(cellDateAtPoint(e.clientX, e.clientY));
+    updateSingleMovePreview(cellDateAtPoint(e.clientX, e.clientY), e.clientY - gesture.startY);
   } else if (gesture.mode === 'band-move-drag') {
     const hoverDs = cellDateAtPoint(e.clientX, e.clientY);
     if (hoverDs) updateBandMovePreview(hoverDs);
+  } else if (gesture.mode === 'band-copy-drag') {
+    const hoverDs = cellDateAtPoint(e.clientX, e.clientY);
+    if (hoverDs) updateBandCopyPreview(hoverDs);
   } else if (gesture.mode === 'band-resize') {
     const hoverDs = cellDateAtPoint(e.clientX, e.clientY);
     if (hoverDs) updateBandResizePreview(hoverDs);
@@ -1145,18 +1222,34 @@ function onDocMouseMove(e) {
   }
 }
 function onDocMouseUp(e) {
-  clearTimeout(gesture.timer);
   const endDs = cellDateAtPoint(e.clientX, e.clientY) || gesture.startDs;
   if (gesture.mode === 'pending') {
-    if (gesture.kind === 'single') selectEvent({ kind: 'single', ds: gesture.startDs, id: gesture.id });
-    else if (gesture.kind === 'band') selectEvent({ kind: 'band', id: gesture.id });
-    else { clearSelection(); openQuickInput(gesture.startDs); }
+    if (gesture.kind === 'single' || gesture.kind === 'band') {
+      const ref = gesture.kind === 'single'
+        ? { kind: 'single', ds: gesture.startDs, id: gesture.id }
+        : { kind: 'band', id: gesture.id };
+      // Double-click detection is tracked here (by kind+id+timestamp) rather than via the
+      // native 'dblclick' event: selectEvent() below re-renders the clicked row/bar, so a
+      // real second click never lands on a DOM node the browser still considers "the same
+      // target" as the first, and native dblclick never fires — confirmed via CDP testing.
+      const clickKey = gesture.kind + ':' + gesture.id;
+      const now = Date.now();
+      if (lastEventClick && lastEventClick.key === clickKey && now - lastEventClick.time < DOUBLE_CLICK_MS) {
+        lastEventClick = null;
+        openDetailModal(ref);
+      } else {
+        lastEventClick = { key: clickKey, time: now };
+        selectEvent(ref);
+      }
+    } else { clearSelection(); openQuickInput(gesture.startDs); }
   } else if (gesture.mode === 'band-drag') {
     finishBandDrag(gesture.startDs, endDs);
   } else if (gesture.mode === 'single-move-drag') {
-    finishSingleMove(endDs);
+    finishSingleMove(endDs, e.clientY - gesture.startY);
   } else if (gesture.mode === 'band-move-drag') {
     finishBandMove();
+  } else if (gesture.mode === 'band-copy-drag') {
+    finishBandCopy();
   } else if (gesture.mode === 'band-resize') {
     finishBandResize();
   } else if (gesture.mode === 'band-lane-drag') {
@@ -1167,11 +1260,26 @@ function onDocMouseUp(e) {
   document.removeEventListener('mouseup', onDocMouseUp);
 }
 
-// ---- single-day event drag-to-move ----
+// ---- single-day event drag-to-move (or Ctrl+drag-to-copy) ----
 function startSingleMovePreview() {
-  if (gesture.eventRow) gesture.eventRow.classList.add('dragging');
+  // Copy mode leaves the original at full opacity — only the dragged ghost is dimmed —
+  // since, unlike a move, the source event isn't going anywhere.
+  if (gesture.eventRow && !gesture.copy) gesture.eventRow.classList.add('dragging');
 }
-function updateSingleMovePreview(hoverDs) {
+function updateSingleMovePreview(hoverDs, dy) {
+  if (!gesture.copy && hoverDs === gesture.startDs) {
+    // Still hovering the source day — dragging vertically here reorders the
+    // event within that day's stack instead of relocating it to another date.
+    gridInner.querySelectorAll('.dayCell.dropHover').forEach(c => c.classList.remove('dropHover'));
+    if (moveGhostEl) { moveGhostEl.remove(); moveGhostEl = null; }
+    moveGhostDs = null;
+    if (gesture.eventRow) {
+      gesture.eventRow.style.transform = `translateY(${dy}px)`;
+      gesture.eventRow.style.zIndex = 50;
+    }
+    return;
+  }
+  if (gesture.eventRow) { gesture.eventRow.style.transform = ''; gesture.eventRow.style.zIndex = ''; }
   if (hoverDs === moveGhostDs) return;
   gridInner.querySelectorAll('.dayCell.dropHover').forEach(c => c.classList.remove('dropHover'));
   if (moveGhostEl) { moveGhostEl.remove(); moveGhostEl = null; }
@@ -1188,14 +1296,47 @@ function updateSingleMovePreview(hoverDs) {
   cell.appendChild(ghost);
   moveGhostEl = ghost;
 }
-function finishSingleMove(targetDs) {
-  if (gesture.eventRow) gesture.eventRow.classList.remove('dragging');
+function finishSingleMove(targetDs, dy) {
+  const rowStep = gesture.eventRow ? gesture.eventRow.getBoundingClientRect().height + 2 : 16;
+  if (gesture.eventRow) {
+    gesture.eventRow.classList.remove('dragging');
+    gesture.eventRow.style.transform = '';
+    gesture.eventRow.style.zIndex = '';
+  }
   gridInner.querySelectorAll('.dayCell.dropHover').forEach(c => c.classList.remove('dropHover'));
   if (moveGhostEl) { moveGhostEl.remove(); moveGhostEl = null; }
   moveGhostDs = null;
   const sourceDs = gesture.startDs;
   const id = gesture.id;
-  if (!targetDs || targetDs === sourceDs) return;
+  if (gesture.copy) {
+    // Ctrl+drag drops a duplicate at the drop location — the original is never touched.
+    const src = getSingles(sourceDs).find(ev => ev.id === id);
+    if (!src || !targetDs) return;
+    pushUndoSnapshot();
+    const copy = { ...src, id: genId('s') };
+    if (!data.singles[targetDs]) data.singles[targetDs] = [];
+    data.singles[targetDs].push(copy);
+    selectedRef = { kind: 'single', ds: targetDs, id: copy.id };
+    scheduleSave();
+    refreshCell(targetDs);
+    return;
+  }
+  if (targetDs === sourceDs) {
+    // Dropped back on the same day — reorder within its stack based on how far it moved.
+    const list = getSingles(sourceDs);
+    const idx = list.findIndex(ev => ev.id === id);
+    if (idx === -1) return;
+    const step = Math.round((dy || 0) / rowStep);
+    const targetIdx = Math.max(0, Math.min(list.length - 1, idx + step));
+    if (targetIdx === idx) return;
+    pushUndoSnapshot();
+    const [ev] = list.splice(idx, 1);
+    list.splice(targetIdx, 0, ev);
+    scheduleSave();
+    refreshCell(sourceDs);
+    return;
+  }
+  if (!targetDs) return;
   const list = getSingles(sourceDs);
   const idx = list.findIndex(ev => ev.id === id);
   if (idx === -1) return;
@@ -1233,15 +1374,14 @@ function finishBandResize() {
     rerenderAllBands();
     return;
   }
-  if (bandWouldOverflow({ start: newStart, end: newEnd }, band.id)) {
+  const laneOf = planBandLanes({ id: band.id, start: newStart, end: newEnd, lane: band.lane });
+  if (!laneOf) {
     rerenderAllBands();
-    showInlineWarning(newStart, 'この週は帯を3本までしか追加できません');
+    showInlineWarning(newStart, '帯予定は同じ日に３つまでしか\n置けないよ');
     return;
   }
   pushUndoSnapshot();
-  band.start = newStart;
-  band.end = newEnd;
-  band.lane = resolveLaneForBand(band, newStart, newEnd);
+  commitBandLanes({ id: band.id, start: newStart, end: newEnd }, laneOf);
   scheduleSave();
   rerenderAllBands();
 }
@@ -1273,15 +1413,55 @@ function finishBandMove() {
     rerenderAllBands();
     return;
   }
-  if (bandWouldOverflow({ start: newStart, end: newEnd }, band.id)) {
+  const laneOf = planBandLanes({ id: band.id, start: newStart, end: newEnd, lane: band.lane });
+  if (!laneOf) {
     rerenderAllBands();
-    showInlineWarning(newStart, 'この週は帯を3本までしか追加できません');
+    showInlineWarning(newStart, '帯予定は同じ日に３つまでしか\n置けないよ');
     return;
   }
   pushUndoSnapshot();
-  band.start = newStart;
-  band.end = newEnd;
-  band.lane = resolveLaneForBand(band, newStart, newEnd);
+  commitBandLanes({ id: band.id, start: newStart, end: newEnd }, laneOf);
+  scheduleSave();
+  rerenderAllBands();
+}
+
+// ---- band Ctrl+drag-to-copy: the original band never moves, a new one is dropped
+// at the target offset (same grab-point-relative delta as a normal move) ----
+function startBandCopyPreview() {
+  const band = data.bands.find(b => b.id === gesture.id);
+  if (!band) return;
+  bandCopyPreview = { start: band.start, end: band.end, color: band.color, text: band.text, lane: assignFreeLane(band.start, band.end) };
+  rerenderAllBands();
+}
+function updateBandCopyPreview(hoverDs) {
+  if (!bandCopyPreview) return;
+  const band = data.bands.find(b => b.id === gesture.id);
+  if (!band) return;
+  const deltaDays = Math.round((new Date(hoverDs) - new Date(gesture.startDs)) / 86400000);
+  bandCopyPreview.start = toDs(addDays(new Date(band.start), deltaDays));
+  bandCopyPreview.end = toDs(addDays(new Date(band.end), deltaDays));
+  bandCopyPreview.lane = assignFreeLane(bandCopyPreview.start, bandCopyPreview.end);
+  rerenderAllBands();
+}
+function finishBandCopy() {
+  const band = data.bands.find(b => b.id === gesture.id);
+  const newStart = bandCopyPreview && bandCopyPreview.start;
+  const newEnd = bandCopyPreview && bandCopyPreview.end;
+  bandCopyPreview = null;
+  if (!band || !newStart) { rerenderAllBands(); return; }
+  const copy = {
+    id: genId('b'), text: band.text, start: newStart, end: newEnd,
+    color: band.color, time: band.time || '', memo: band.memo || ''
+  };
+  const laneOf = planBandLanes(copy);
+  if (!laneOf) {
+    rerenderAllBands();
+    showInlineWarning(newStart, '帯予定は同じ日に３つまでしか\n置けないよ');
+    return;
+  }
+  pushUndoSnapshot();
+  commitBandLanes(copy, laneOf);
+  selectEvent({ kind: 'band', id: copy.id });
   scheduleSave();
   rerenderAllBands();
 }
@@ -1337,17 +1517,34 @@ function moveSelectedByDays(deltaDays) {
     if (!band) return;
     const newStart = toDs(addDays(new Date(band.start), deltaDays));
     const newEnd = toDs(addDays(new Date(band.end), deltaDays));
-    if (bandWouldOverflow({ start: newStart, end: newEnd }, band.id)) {
-      showInlineWarning(newStart, 'この週は帯を3本までしか追加できません');
+    const laneOf = planBandLanes({ id: band.id, start: newStart, end: newEnd, lane: band.lane });
+    if (!laneOf) {
+      showInlineWarning(newStart, '帯予定は同じ日に３つまでしか\n置けないよ');
       return;
     }
     pushUndoSnapshot();
-    band.start = newStart;
-    band.end = newEnd;
-    band.lane = resolveLaneForBand(band, newStart, newEnd);
+    commitBandLanes({ id: band.id, start: newStart, end: newEnd }, laneOf);
     scheduleSave();
     rerenderAllBands();
   }
+}
+// Shift+Left/Right on a selected band shrinks/extends its end date only (start stays put).
+function resizeSelectedBandEnd(deltaDays) {
+  if (!selectedRef || selectedRef.kind !== 'band') return;
+  const band = data.bands.find(b => b.id === selectedRef.id);
+  if (!band) return;
+  let newEnd = toDs(addDays(new Date(band.end), deltaDays));
+  if (newEnd < band.start) newEnd = band.start; // never shrink past the start date
+  if (newEnd === band.end) return;
+  const laneOf = planBandLanes({ id: band.id, start: band.start, end: newEnd, lane: band.lane });
+  if (!laneOf) {
+    showInlineWarning(band.start, '帯予定は同じ日に３つまでしか\n置けないよ');
+    return;
+  }
+  pushUndoSnapshot();
+  commitBandLanes({ id: band.id, start: band.start, end: newEnd }, laneOf);
+  scheduleSave();
+  rerenderAllBands();
 }
 function deleteSelected() {
   if (!selectedRef) return;
@@ -1372,14 +1569,17 @@ function finishBandDrag(startDs, endDsRaw) {
   previewBand = null;
   const start = startDs < endDsRaw ? startDs : endDsRaw;
   const end = startDs < endDsRaw ? endDsRaw : startDs;
-  const candidate = { id: genId('b'), text: '', start, end, color: 1, time: '', memo: '', lane: assignFreeLane(start, end) };
-  if (bandWouldOverflow(candidate)) {
+  const candidate = { id: genId('b'), text: '', start, end, color: 1, time: '', memo: '' };
+  const laneOf = planBandLanes(candidate);
+  if (!laneOf) {
     rerenderAllBands();
-    showInlineWarning(start, 'この週は帯を3本までしか追加できません');
+    showInlineWarning(start, '帯予定は同じ日に３つまでしか\n置けないよ');
     return;
   }
   // Keep the drawn bar visible (as composingBand) while the name popover is open,
-  // instead of disappearing until commit.
+  // instead of disappearing until commit. This lane is only a rendering hint —
+  // openBandTextInput re-plans (and actually commits) lanes once a name is entered.
+  candidate.lane = laneOf.get(candidate.id);
   composingBand = candidate;
   rerenderAllBands();
   openBandTextInput(candidate);
@@ -1414,9 +1614,15 @@ function openBandTextInput(candidate) {
     closeFloating();
     composingBand = null;
     if (commit && text) {
+      const laneOf = planBandLanes(candidate);
+      if (!laneOf) {
+        rerenderAllBands();
+        showInlineWarning(candidate.start, '帯予定は同じ日に３つまでしか\n置けないよ');
+        return;
+      }
       pushUndoSnapshot();
       candidate.text = text;
-      data.bands.push(candidate);
+      commitBandLanes(candidate, laneOf);
       scheduleSave();
     }
     rerenderAllBands();
@@ -1426,12 +1632,12 @@ function openBandTextInput(candidate) {
     if (e.key === 'Enter') finish(true);
     else if (e.key === 'Escape') finish(false);
   });
-  // Clicking elsewhere should cancel the band, not silently commit it — only Enter commits.
-  input.addEventListener('blur', () => finish(false));
+  // Clicking elsewhere commits if a name was typed; empty input still cancels the band.
+  input.addEventListener('blur', () => finish(input.value.trim().length > 0));
   setTimeout(() => document.addEventListener('mousedown', outsideCloser, { once: true }), 0);
 }
 
-// ---- detail modal: shows only the one event that was long-pressed ----
+// ---- detail modal: shows only the one event that was double-clicked ----
 const detailOverlay = document.getElementById('detailOverlay');
 const detailDateLabel = document.getElementById('detailDateLabel');
 const detailList = document.getElementById('detailList');
@@ -1468,6 +1674,8 @@ async function importBackup() {
   data = parsed;
   data.viewMonths = monthViewCount; // not part of a backup — keep whatever's currently displayed
   if (!data.dayOverrides) data.dayOverrides = {};
+  if (!data.palette) data.palette = defaultData().palette;
+  else if (data.palette.length < 6) data.palette.push('#E5D8F5');
   migrateLanes();
   selectedRef = null;
   closeDetailModal();
@@ -1631,7 +1839,7 @@ function buildBandDetailItem(band) {
 
   const rangeWarning = document.createElement('div');
   rangeWarning.className = 'rangeWarning';
-  rangeWarning.textContent = 'この週は帯を3本までしか追加できません';
+  rangeWarning.textContent = '帯予定は同じ日に３つまでしか\n置けないよ';
   item.appendChild(rangeWarning);
 
   function commitRange() {
@@ -1639,7 +1847,8 @@ function buildBandDetailItem(band) {
     if (!newStart || !newEnd) { startInput.value = band.start; endInput.value = band.end; return; }
     if (newStart > newEnd) { const tmp = newStart; newStart = newEnd; newEnd = tmp; }
     if (newStart === band.start && newEnd === band.end) return;
-    if (bandWouldOverflow({ start: newStart, end: newEnd }, band.id)) {
+    const laneOf = planBandLanes({ id: band.id, start: newStart, end: newEnd, lane: band.lane });
+    if (!laneOf) {
       startInput.value = band.start;
       endInput.value = band.end;
       rangeWarning.style.display = 'block';
@@ -1647,9 +1856,7 @@ function buildBandDetailItem(band) {
       return;
     }
     pushUndoSnapshot();
-    band.start = newStart;
-    band.end = newEnd;
-    band.lane = resolveLaneForBand(band, newStart, newEnd);
+    commitBandLanes({ id: band.id, start: newStart, end: newEnd }, laneOf);
     scheduleSave();
     rerenderAllBands();
     renderDetailList();
@@ -1839,6 +2046,18 @@ function jumpToMonth(year, month) {
   currentMonthKey = year * 12 + month;
 }
 
+// Unlike jumpToMonth (which top-aligns a month), this centers today's week row
+// in the viewport regardless of month boundaries.
+function jumpToToday() {
+  const weekStart = mondayStart(today);
+  ensureRangeLoaded(addDays(weekStart, -BUFFER * 7), addDays(weekStart, (VISIBLE + BUFFER) * 7));
+  const idx = weekStarts.findIndex(ws => ws.getTime() === weekStart.getTime());
+  if (idx === -1) return;
+  const target = (idx + 0.5) * rowHeightCache - gridScroll.clientHeight / 2;
+  gridScroll.scrollTo({ top: Math.max(0, target), behavior: 'smooth' });
+  currentMonthKey = today.getFullYear() * 12 + today.getMonth();
+}
+
 // ---- scroll handling ----
 let scrollScheduled = false;
 function onGridScroll() {
@@ -1875,17 +2094,28 @@ gridScroll.addEventListener('scroll', onGridScroll);
 window.addEventListener('resize', onResize);
 document.addEventListener('keydown', (e) => {
   const tag = document.activeElement && document.activeElement.tagName;
-  if (tag === 'INPUT' || tag === 'TEXTAREA') return; // let the field's own native undo handle it
+  // Defer to the field's own native undo only while it actually has text to undo —
+  // an empty field has nothing for native undo to do, so app-level undo/redo should
+  // still work instead of being silently swallowed.
+  if ((tag === 'INPUT' || tag === 'TEXTAREA') && document.activeElement.value) return;
   if (e.ctrlKey && e.key.toLowerCase() === 'z') {
     e.preventDefault();
     if (e.shiftKey) redo(); else undo();
     return;
   }
-  if (!selectedRef) return;
+  if (!selectedRef) {
+    if (e.key.toLowerCase() === 't' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      jumpToToday();
+    }
+    return;
+  }
   if (e.key === 'Delete' || e.key === 'Backspace') {
     e.preventDefault();
     deleteSelected();
-  } else if (e.key === 'ArrowLeft') { e.preventDefault(); moveSelectedByDays(-1); }
+  } else if (e.shiftKey && e.key === 'ArrowLeft') { e.preventDefault(); resizeSelectedBandEnd(-1); }
+  else if (e.shiftKey && e.key === 'ArrowRight') { e.preventDefault(); resizeSelectedBandEnd(1); }
+  else if (e.key === 'ArrowLeft') { e.preventDefault(); moveSelectedByDays(-1); }
   else if (e.key === 'ArrowRight') { e.preventDefault(); moveSelectedByDays(1); }
   else if (e.key === 'ArrowUp') { e.preventDefault(); moveSelectedByDays(-7); }
   else if (e.key === 'ArrowDown') { e.preventDefault(); moveSelectedByDays(7); }
@@ -1907,6 +2137,7 @@ monthLabelEl.addEventListener('click', () => {
   const y = Math.floor(currentMonthKey / 12), m = currentMonthKey % 12;
   jumpToMonth(y, m);
 });
+document.getElementById('todayBtn').addEventListener('click', jumpToToday);
 
 // ---- month view density (1/2/3 months at once) ----
 function updateViewToggleUI() {
@@ -1917,7 +2148,7 @@ function updateViewToggleUI() {
 function setMonthViewCount(n) {
   if (n === monthViewCount) return;
   monthViewCount = n;
-  VISIBLE = monthViewCount * 5;
+  VISIBLE = VISIBLE_BY_MONTHS[monthViewCount];
   CAP = VISIBLE + BUFFER * 2;
   data.viewMonths = monthViewCount;
   scheduleSave();
@@ -1932,7 +2163,7 @@ document.querySelectorAll('#viewToggle .viewBtn').forEach(btn => {
 (async () => {
   await loadData();
   monthViewCount = data.viewMonths || 1;
-  VISIBLE = monthViewCount * 5;
+  VISIBLE = VISIBLE_BY_MONTHS[monthViewCount];
   CAP = VISIBLE + BUFFER * 2;
   updateViewToggleUI();
   initWeeks(today.getFullYear(), today.getMonth());
