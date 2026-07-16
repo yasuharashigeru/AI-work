@@ -1,4 +1,4 @@
-const CACHE_NAME = 'sakelog-v13';
+const CACHE_NAME = 'sakelog-v15';
 const ASSETS = [
   './',
   './index.html',

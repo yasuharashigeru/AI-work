@@ -205,7 +205,7 @@
   }
   .detail-body { padding: 18px 16px; }
   .detail-genre { font-size: 12px; color: var(--accent-ink); font-weight: bold; }
-  .detail-name { font-size: 20px; margin: 4px 0 8px; }
+  .detail-name { font-size: 20px; margin: 4px 0 8px; width: fit-content; max-width: 100%; }
   .detail-rating { font-size: 16px; color: var(--border); margin-bottom: 10px; letter-spacing: 2px; }
   .detail-rating .filled { color: var(--accent-mid); }
   .detail-price { font-size: 17px; font-weight: bold; margin-bottom: 10px; }
@@ -214,7 +214,7 @@
     background: var(--bg); padding: 2px 9px; border-radius: 4px;
   }
   .detail-memo { white-space: pre-wrap; color: var(--text); margin-bottom: 14px; line-height: 1.7; font-size: 14px; }
-  .detail-maker { display: block; margin-bottom: 6px; word-break: break-all; font-size: 13px; color: var(--text2); }
+  .detail-maker { display: block; width: fit-content; max-width: 100%; margin-bottom: 6px; word-break: break-all; font-size: 13px; color: var(--text2); }
   .detail-link, .detail-link-plain { display: block; margin-bottom: 14px; word-break: break-all; font-size: 13px; }
   .detail-link { color: var(--accent-ink); }
   .detail-link-plain { color: var(--text2); }
@@ -788,7 +788,7 @@ function renderDetailHTML(itemId) {
 }
 function showRubyToastFrom(el) {
   const ruby = el.dataset.ruby;
-  if (ruby) showToast(ruby);
+  if (ruby) showToast(ruby, el);
 }
 
 // ============================================================
@@ -1372,41 +1372,40 @@ function closeConfirm(result) {
 // ============================================================
 let toastUndoFn = null;
 let toastTimer = null;
-let lastTapX = null, lastTapY = null;
-document.addEventListener('pointerdown', (e) => { lastTapX = e.clientX; lastTapY = e.clientY; }, true);
 
-function positionToastNearTap(t) {
-  if (lastTapX == null) {
-    t.style.top = ''; t.style.bottom = 'calc(140px + env(safe-area-inset-bottom))';
-    t.style.left = '50%'; t.style.transform = 'translateX(-50%)';
-    return;
-  }
-  const GAP = 56; // clear of a finger resting on the tapped spot
-  const MARGIN = 8;
+function resetToastPositionDefault(t) {
+  t.style.top = ''; t.style.bottom = 'calc(140px + env(safe-area-inset-bottom))';
+  t.style.left = '50%'; t.style.transform = 'translateX(-50%)';
+}
+function positionToastForElement(t, el) {
+  const MARGIN = 8, GAP = 10;
   t.style.bottom = 'auto';
-  t.style.transform = 'translateX(-50%)';
-  t.style.left = lastTapX + 'px';
+  t.style.transform = 'none';
+  const r = el.getBoundingClientRect();
+  t.style.left = '-9999px';
   t.style.top = '-9999px'; // lay out off-screen first, just to measure size
   const w = t.offsetWidth, h = t.offsetHeight;
-  let top = lastTapY - GAP - h;
-  if (top < MARGIN) top = lastTapY + GAP;
-  if (top + h > window.innerHeight - MARGIN) top = window.innerHeight - h - MARGIN;
-  const left = Math.min(Math.max(lastTapX, w / 2 + MARGIN), window.innerWidth - w / 2 - MARGIN);
+  let left = r.right + GAP;
+  if (left + w > window.innerWidth - MARGIN) left = r.left - GAP - w; // no room to the right: put it on the left instead
+  left = Math.min(Math.max(left, MARGIN), window.innerWidth - w - MARGIN);
+  let top = r.top + r.height / 2 - h / 2;
+  top = Math.min(Math.max(top, MARGIN), window.innerHeight - h - MARGIN);
   t.style.left = left + 'px';
   t.style.top = top + 'px';
 }
-function showUndoToast(msg, undoFn) {
+function showUndoToast(msg, undoFn, anchorEl) {
   const t = document.getElementById('toast');
   document.getElementById('toastMsg').textContent = msg;
   const btn = document.getElementById('toastUndoBtn');
   toastUndoFn = undoFn;
   btn.style.display = undoFn ? 'inline' : 'none';
-  positionToastNearTap(t);
+  if (anchorEl) positionToastForElement(t, anchorEl);
+  else resetToastPositionDefault(t);
   t.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { t.classList.remove('show'); toastUndoFn = null; }, 5000);
 }
-function showToast(msg) { showUndoToast(msg, null); }
+function showToast(msg, anchorEl) { showUndoToast(msg, null, anchorEl); }
 function dismissToast() {
   document.getElementById('toast').classList.remove('show');
   clearTimeout(toastTimer);
