@@ -197,6 +197,9 @@
   }
 
   /* ---- Browse: detail ---- */
+  .detail-swipe { touch-action: pan-y; }
+  .detail-slide-wrap { position: relative; overflow: hidden; }
+  .detail-slide-pane { position: absolute; top: 0; left: 0; width: 100%; }
   .detail-photo { aspect-ratio: 1 / 1; width: 100%; background: var(--bg); }
   .detail-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .detail-photo-placeholder {
@@ -249,7 +252,10 @@
 
   /* genre row: tap = select, swipe left (live-follows finger) = rename/
      delete action modal, long-press then drag vertically = reorder */
-  .genre-row { padding: 0; position: relative; background: var(--white); touch-action: pan-y; }
+  .genre-row {
+    padding: 0; position: relative; background: var(--white); touch-action: pan-y;
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+  }
   .genre-row-inner { display: block; padding: 14px 16px; }
   .genre-row-dragging { background: var(--bg); }
 
@@ -771,20 +777,81 @@ function renderDetailHTML(itemId) {
       : `<div class="detail-link-plain">${esc(it.url)}</div>`;
   }
   return `
-    <div class="detail-photo">${photoHtml}</div>
-    <div class="detail-body">
-      <div class="detail-genre">${esc(g ? g.name : '')}</div>
-      <h2 class="detail-name" data-ruby="${esc(it.nameRuby || '')}" onclick="showRubyToastFrom(this)">${esc(it.name)}</h2>
-      ${ratingHtml}
-      ${priceHtml}
-      ${makerHtml}
-      ${linkHtml}
-      ${memoHtml}
-      <div class="detail-actions">
-        <button type="button" class="btn-edit" onclick="startEdit('${it.id}')">編集</button>
-        <button type="button" class="btn-delete" onclick="confirmDeleteItem('${it.id}')">削除</button>
+    <div class="detail-swipe" onpointerdown="onDetailSwipeStart(event)" onpointermove="onDetailSwipeMove(event)" onpointerup="onDetailSwipeEnd(event)" onpointercancel="onDetailSwipeCancel(event)">
+      <div class="detail-photo">${photoHtml}</div>
+      <div class="detail-body">
+        <div class="detail-genre">${esc(g ? g.name : '')}</div>
+        <h2 class="detail-name" data-ruby="${esc(it.nameRuby || '')}" onclick="showRubyToastFrom(this)">${esc(it.name)}</h2>
+        ${ratingHtml}
+        ${priceHtml}
+        ${makerHtml}
+        ${linkHtml}
+        ${memoHtml}
+        <div class="detail-actions">
+          <button type="button" class="btn-edit" onclick="startEdit('${it.id}')">編集</button>
+          <button type="button" class="btn-delete" onclick="confirmDeleteItem('${it.id}')">削除</button>
+        </div>
       </div>
     </div>`;
+}
+// ---- Detail swipe: left/right slides to the next/previous item within
+// the same genre (respecting the current sort), replacing (not pushing)
+// browse history so back still returns straight to the item grid.
+const DETAIL_SWIPE_THRESHOLD = 60;
+const DETAIL_SWIPE_CANCEL_PX = 10;
+let detailSwipe = null;
+function onDetailSwipeStart(e) {
+  detailSwipe = { startX: e.clientX, startY: e.clientY, active: false };
+}
+function onDetailSwipeMove(e) {
+  const s = detailSwipe;
+  if (!s) return;
+  const dx = e.clientX - s.startX, dy = e.clientY - s.startY;
+  if (!s.active && (Math.abs(dx) > DETAIL_SWIPE_CANCEL_PX || Math.abs(dy) > DETAIL_SWIPE_CANCEL_PX)) {
+    s.active = Math.abs(dx) > Math.abs(dy);
+    if (!s.active) detailSwipe = null; // vertical: let the page scroll normally
+  }
+}
+function onDetailSwipeEnd(e) {
+  const s = detailSwipe;
+  detailSwipe = null;
+  if (!s || !s.active) return;
+  const dx = e.clientX - s.startX;
+  if (Math.abs(dx) < DETAIL_SWIPE_THRESHOLD) return;
+  swipeToAdjacentItem(dx < 0 ? 1 : -1);
+}
+function onDetailSwipeCancel() { detailSwipe = null; }
+function swipeToAdjacentItem(direction) {
+  const top = browseStack[browseStack.length - 1];
+  if (!top || top.type !== 'detail') return;
+  const it = itemById(top.itemId);
+  if (!it) return;
+  const list = sortedItemsForGenre(it.genreId);
+  const idx = list.findIndex(i => i.id === it.id);
+  const newItem = list[idx + direction];
+  if (!newItem) return; // at the first/last item already
+
+  const root = document.getElementById('browseRoot');
+  const oldHTML = root.innerHTML;
+  const newHTML = renderDetailHTML(newItem.id);
+  const h = root.offsetHeight;
+  root.innerHTML = `
+    <div class="detail-slide-wrap" style="height:${h}px">
+      <div class="detail-slide-pane" style="transform:translateX(0)">${oldHTML}</div>
+      <div class="detail-slide-pane" style="transform:translateX(${direction * 100}%)">${newHTML}</div>
+    </div>`;
+  const panes = root.querySelectorAll('.detail-slide-pane');
+  // force layout before changing transforms, so the transition actually animates
+  void root.offsetHeight;
+  panes[0].style.transition = 'transform 0.22s ease';
+  panes[1].style.transition = 'transform 0.22s ease';
+  panes[0].style.transform = `translateX(${-direction * 100}%)`;
+  panes[1].style.transform = 'translateX(0)';
+  setTimeout(() => {
+    browseStack[browseStack.length - 1] = { type: 'detail', itemId: newItem.id };
+    history.replaceState({ browseDepth: browseStack.length }, '');
+    renderBrowse();
+  }, 220);
 }
 function showRubyToastFrom(el) {
   const ruby = el.dataset.ruby;
