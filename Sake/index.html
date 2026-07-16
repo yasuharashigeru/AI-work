@@ -12,6 +12,7 @@
 <title>Sake Log</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  img, .item-tile, .genre-tile, .photo-picker { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 
   :root {
     --accent:      #7FD4F5;
@@ -234,14 +235,11 @@
   .sel-row-active { color: var(--accent-ink); font-weight: bold; }
   .sort-arrow { color: var(--accent-mid); }
 
-  /* genre row: tap = select, swipe left = rename/delete action modal (Traqr pattern) */
-  .genre-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .genre-row-move { display: flex; gap: 4px; flex-shrink: 0; }
-  .genre-row-move button {
-    background: var(--bg); border: none; border-radius: 4px; width: 26px; height: 26px;
-    font-size: 11px; color: var(--text2); cursor: pointer;
-  }
-  .genre-row-move button:disabled { opacity: 0.3; }
+  /* genre row: tap = select, swipe left (live-follows finger) = rename/
+     delete action modal, long-press then drag vertically = reorder */
+  .genre-row { padding: 0; position: relative; background: var(--white); touch-action: pan-y; }
+  .genre-row-inner { display: block; padding: 14px 16px; }
+  .genre-row-dragging { background: var(--bg); }
 
   .genre-manage-row { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--border); }
   .genre-manage-name { flex: 1; border: none; border-bottom: 1px solid var(--border); padding: 9px 2px; font-size: 14px; }
@@ -792,15 +790,11 @@ function closeGenreSheet() {
 function renderGenreSheet() {
   const sorted = [...genres].sort((a, b) => a.order - b.order);
   const list = document.getElementById('genreSheetList');
-  let html = sorted.map((g, idx) => `
-    <div class="sel-row genre-row" onclick="selectGenre('${g.id}')"
-      ontouchstart="onGenreSwipeStart(event)" ontouchend="onGenreSwipeEnd(event, '${g.id}')"
-      onmousedown="onGenreDragStart(event)" onmouseup="onGenreDragEnd(event, '${g.id}')">
-      <span class="genre-row-name">${esc(g.name)}</span>
-      <span class="genre-row-move">
-        <button type="button" onclick="event.stopPropagation(); moveGenre('${g.id}', -1)" ${idx === 0 ? 'disabled' : ''}>▲</button>
-        <button type="button" onclick="event.stopPropagation(); moveGenre('${g.id}', 1)" ${idx === sorted.length - 1 ? 'disabled' : ''}>▼</button>
-      </span>
+  let html = sorted.map(g => `
+    <div class="sel-row genre-row" data-genre-id="${g.id}" onclick="onGenreRowClick('${g.id}')"
+      onpointerdown="onGenreRowPointerDown(event)" onpointermove="onGenreRowPointerMove(event)"
+      onpointerup="onGenreRowPointerUp(event)" onpointercancel="onGenreRowPointerCancel(event)">
+      <span class="genre-row-inner">${esc(g.name)}</span>
     </div>`).join('');
   if (addingGenre) {
     html += `
@@ -813,14 +807,117 @@ function renderGenreSheet() {
   list.innerHTML = html;
   if (addingGenre) setTimeout(() => document.getElementById('newGenreInput')?.focus(), 0);
 }
-let genreSwipeStartX = 0;
-function onGenreSwipeStart(e) { genreSwipeStartX = e.touches[0].clientX; }
-function onGenreSwipeEnd(e, id) {
-  if (genreSwipeStartX - e.changedTouches[0].clientX > 40) { e.preventDefault(); openGenreAction(id); }
+
+// ---- Genre row gestures ----
+// Tap = select. Swipe left (row visually follows the finger) past the
+// threshold = open rename/delete action modal. Hold still ~450ms then
+// drag vertically = reorder (row grays out while movable), matching
+// the feel of native reorderable lists (e.g. iOS Reminders/Home Screen).
+const GENRE_SWIPE_MAX = 88;
+const GENRE_SWIPE_THRESHOLD = 40;
+const GENRE_LONGPRESS_MS = 450;
+const GENRE_MOVE_CANCEL_PX = 10;
+let genreGesture = null;
+let genreGestureFired = false;
+
+function onGenreRowPointerDown(e) {
+  const row = e.currentTarget;
+  genreGesture = {
+    row, inner: row.querySelector('.genre-row-inner'),
+    startX: e.clientX, startY: e.clientY, mode: null,
+    longPressTimer: setTimeout(() => startGenreReorder(e.pointerId), GENRE_LONGPRESS_MS),
+  };
 }
-function onGenreDragStart(e) { genreSwipeStartX = e.clientX; }
-function onGenreDragEnd(e, id) {
-  if (genreSwipeStartX - e.clientX > 40) { e.preventDefault(); openGenreAction(id); }
+function onGenreRowPointerMove(e) {
+  const g = genreGesture;
+  if (!g) return;
+  if (g.mode === 'reorder') { moveGenreReorder(e); return; }
+  const dx = e.clientX - g.startX, dy = e.clientY - g.startY;
+  if (g.mode === 'swipe') {
+    g.inner.style.transform = `translateX(${Math.max(-GENRE_SWIPE_MAX, Math.min(0, dx))}px)`;
+    return;
+  }
+  if (Math.abs(dx) > GENRE_MOVE_CANCEL_PX || Math.abs(dy) > GENRE_MOVE_CANCEL_PX) {
+    clearTimeout(g.longPressTimer);
+    if (Math.abs(dx) > Math.abs(dy) && dx < 0) {
+      g.mode = 'swipe';
+      g.inner.style.transition = 'none';
+    }
+  }
+}
+function onGenreRowPointerUp(e) {
+  const g = genreGesture;
+  if (!g) return;
+  clearTimeout(g.longPressTimer);
+  if (g.mode === 'reorder') {
+    genreGestureFired = true;
+    endGenreReorder();
+  } else if (g.mode === 'swipe') {
+    genreGestureFired = true;
+    const dx = e.clientX - g.startX;
+    g.inner.style.transition = 'transform 0.15s';
+    g.inner.style.transform = 'translateX(0)';
+    if (dx < -GENRE_SWIPE_THRESHOLD) openGenreAction(g.row.dataset.genreId);
+  }
+  genreGesture = null;
+}
+function onGenreRowPointerCancel() {
+  const g = genreGesture;
+  if (!g) return;
+  clearTimeout(g.longPressTimer);
+  if (g.mode === 'swipe') { g.inner.style.transition = 'transform 0.15s'; g.inner.style.transform = 'translateX(0)'; }
+  if (g.mode === 'reorder') endGenreReorder();
+  genreGesture = null;
+}
+function onGenreRowClick(id) {
+  if (genreGestureFired) { genreGestureFired = false; return; }
+  selectGenre(id);
+}
+function startGenreReorder(pointerId) {
+  const g = genreGesture;
+  if (!g) return;
+  g.mode = 'reorder';
+  g.list = document.getElementById('genreSheetList');
+  g.rows = Array.from(g.list.querySelectorAll('.genre-row'));
+  g.row.classList.add('genre-row-dragging');
+  g.row.style.zIndex = 10;
+  try { g.row.setPointerCapture(pointerId); } catch (e) {}
+}
+function moveGenreReorder(e) {
+  const g = genreGesture;
+  g.row.style.transform = `translateY(${e.clientY - g.startY}px)`;
+  const idx = g.rows.indexOf(g.row);
+  const centerY = g.row.getBoundingClientRect().top + g.row.offsetHeight / 2;
+  if (idx > 0) {
+    const prev = g.rows[idx - 1];
+    if (centerY < prev.getBoundingClientRect().top + prev.offsetHeight / 2) {
+      g.list.insertBefore(g.row, prev);
+      g.rows.splice(idx, 1); g.rows.splice(idx - 1, 0, g.row);
+      g.startY = e.clientY; g.row.style.transform = 'translateY(0)';
+      return;
+    }
+  }
+  if (idx < g.rows.length - 1) {
+    const next = g.rows[idx + 1];
+    if (centerY > next.getBoundingClientRect().top + next.offsetHeight / 2) {
+      g.list.insertBefore(next, g.row);
+      g.rows.splice(idx, 1); g.rows.splice(idx + 1, 0, g.row);
+      g.startY = e.clientY; g.row.style.transform = 'translateY(0)';
+      return;
+    }
+  }
+}
+async function endGenreReorder() {
+  const g = genreGesture;
+  g.row.classList.remove('genre-row-dragging');
+  g.row.style.transform = '';
+  g.row.style.zIndex = '';
+  const orderedIds = g.rows.map(r => r.dataset.genreId);
+  for (let i = 0; i < orderedIds.length; i++) {
+    const gen = genreById(orderedIds[i]);
+    if (gen.order !== i) { gen.order = i; await put('genres', gen); }
+  }
+  renderBrowse();
 }
 let genreActionId = null;
 function openGenreAction(id) {
@@ -888,17 +985,6 @@ async function renameGenre(id, newName) {
   await put('genres', g);
   renderGenreSheet();
   renderBrowse();
-}
-async function moveGenre(id, dir) {
-  const sorted = [...genres].sort((a, b) => a.order - b.order);
-  const idx = sorted.findIndex(g => g.id === id);
-  const swapIdx = idx + dir;
-  if (swapIdx < 0 || swapIdx >= sorted.length) return;
-  const a = sorted[idx], b = sorted[swapIdx];
-  const tmp = a.order; a.order = b.order; b.order = tmp;
-  await put('genres', a);
-  await put('genres', b);
-  renderGenreSheet();
 }
 async function requestDeleteGenre(id) {
   const g = genreById(id);
