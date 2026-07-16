@@ -36,11 +36,18 @@
      visualViewport is unavailable); syncViewportHeight() below overrides
      it with the actual visualViewport height via inline style, since
      `dvh` support/behavior is inconsistent across older iOS Safari. */
-  html { height: 100%; }
+  /* html/body pinned with position:fixed so the OUTER page can never be
+     scrolled/panned by iOS's own "scroll focused input into view"
+     behavior when the keyboard opens — only <main> (overflow-y:auto)
+     is allowed to scroll, keeping header/nav/action-bar in place. */
+  html {
+    height: 100%; width: 100%; position: fixed; overflow: hidden;
+  }
   body {
     font-family: "メイリオ", Meiryo, sans-serif;
     background: var(--white);
     color: var(--text);
+    position: fixed; top: 0; left: 0; width: 100%;
     height: 100vh;
     height: 100dvh;
     display: flex;
@@ -110,6 +117,7 @@
     color: var(--text); background: none;
   }
   textarea.form-input { resize: vertical; }
+  .form-input-sub { font-size: 13px; color: var(--text2); margin-top: 2px; }
   .field-warning { color: var(--danger); font-size: 12px; }
   .field-hint { color: var(--text2); font-size: 12px; }
 
@@ -170,7 +178,7 @@
 
   /* ---- Browse: item grid ---- */
   .item-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; padding: 2px; }
-  .item-tile { cursor: pointer; }
+  .item-tile { cursor: pointer; min-width: 0; }
   .item-tile-photo { aspect-ratio: 1 / 1; background: var(--bg); overflow: hidden; position: relative; }
   .item-tile-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .item-tile-placeholder {
@@ -182,6 +190,7 @@
     font-size: 9px; padding: 1px 4px; border-radius: 3px; letter-spacing: 0.5px;
   }
   .item-tile-name {
+    height: 26px; line-height: 18px;
     font-size: 11px; padding: 4px 3px; text-align: center; overflow: hidden;
     text-overflow: ellipsis; white-space: nowrap;
   }
@@ -204,8 +213,10 @@
     background: var(--bg); padding: 2px 9px; border-radius: 4px;
   }
   .detail-memo { white-space: pre-wrap; color: var(--text); margin-bottom: 14px; line-height: 1.7; font-size: 14px; }
-  .detail-maker { display: block; margin-bottom: 14px; word-break: break-all; font-size: 13px; color: var(--text2); }
+  .detail-maker { display: block; margin-bottom: 6px; word-break: break-all; font-size: 13px; color: var(--text2); }
+  .detail-link, .detail-link-plain { display: block; margin-bottom: 14px; word-break: break-all; font-size: 13px; }
   .detail-link { color: var(--accent-ink); }
+  .detail-link-plain { color: var(--text2); }
   .detail-actions { display: flex; gap: 8px; }
   .btn-edit, .btn-delete {
     flex: 1; background: none; border: 1px solid var(--border); border-radius: 6px;
@@ -328,6 +339,7 @@
       <div class="form-group">
         <label>名称<span class="req">*</span></label>
         <input type="text" id="nameInput" class="form-input" placeholder="例：獺祭 純米大吟醸">
+        <input type="text" id="nameRubyInput" class="form-input form-input-sub" placeholder="ふりがな（任意）">
         <div class="field-warning" id="nameWarning" style="display:none">名称を入力してください</div>
       </div>
 
@@ -368,10 +380,11 @@
       <div class="form-group">
         <label>製造元</label>
         <input type="text" id="makerInput" class="form-input" placeholder="例：旭酒造">
+        <input type="text" id="makerRubyInput" class="form-input form-input-sub" placeholder="ふりがな（任意）">
       </div>
 
       <div class="form-group">
-        <label>リンク</label>
+        <label>購入リンク</label>
         <input type="url" id="urlInput" class="form-input" placeholder="https://..." onblur="checkUrlHint()">
         <div class="field-hint" id="urlWarning" style="display:none">URLの形式ではないようです（保存はできます）</div>
       </div>
@@ -747,27 +760,34 @@ function renderDetailHTML(itemId) {
   const ratingHtml = it.rating ? `<div class="detail-rating">${starsHTML(it.rating)}</div>` : '';
   const priceHtml = it.price ? `<div class="detail-price">¥${fmt(it.price)}${it.priceType ? `<span class="detail-price-type">${esc(it.priceType)}</span>` : ''}</div>` : '';
   const memoHtml = it.memo ? `<div class="detail-memo">${esc(it.memo)}</div>` : '';
-  let makerHtml = '';
-  if (it.maker || it.url) {
-    const label = it.maker || it.url;
-    makerHtml = safeUrl(it.url)
-      ? `<a class="detail-maker detail-link" href="${esc(it.url)}" target="_blank" rel="noopener">${esc(label)}</a>`
-      : `<div class="detail-maker">${esc(label)}</div>`;
+  const makerHtml = it.maker
+    ? `<div class="detail-maker" data-ruby="${esc(it.makerRuby || '')}" onclick="showRubyToastFrom(this)">${esc(it.maker)}</div>`
+    : '';
+  let linkHtml = '';
+  if (it.url) {
+    linkHtml = safeUrl(it.url)
+      ? `<a class="detail-link" href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.url)}</a>`
+      : `<div class="detail-link-plain">${esc(it.url)}</div>`;
   }
   return `
     <div class="detail-photo">${photoHtml}</div>
     <div class="detail-body">
       <div class="detail-genre">${esc(g ? g.name : '')}</div>
-      <h2 class="detail-name">${esc(it.name)}</h2>
+      <h2 class="detail-name" data-ruby="${esc(it.nameRuby || '')}" onclick="showRubyToastFrom(this)">${esc(it.name)}</h2>
       ${ratingHtml}
       ${priceHtml}
       ${makerHtml}
+      ${linkHtml}
       ${memoHtml}
       <div class="detail-actions">
         <button type="button" class="btn-edit" onclick="startEdit('${it.id}')">編集</button>
         <button type="button" class="btn-delete" onclick="confirmDeleteItem('${it.id}')">削除</button>
       </div>
     </div>`;
+}
+function showRubyToastFrom(el) {
+  const ruby = el.dataset.ruby;
+  if (ruby) showToast(ruby);
 }
 
 // ============================================================
@@ -1051,7 +1071,9 @@ async function saveItem() {
   if (price && !selectedPriceType) { document.getElementById('priceTypeWarning').style.display = 'block'; valid = false; }
   if (!valid) return;
 
+  const nameRuby = document.getElementById('nameRubyInput').value.trim();
   const maker = document.getElementById('makerInput').value.trim();
+  const makerRuby = document.getElementById('makerRubyInput').value.trim();
   const url = document.getElementById('urlInput').value.trim();
   const memo = document.getElementById('memoInput').value.trim();
 
@@ -1062,11 +1084,11 @@ async function saveItem() {
   const record = {
     id: isEdit ? editingItemId : crypto.randomUUID(),
     genreId: selectedGenreId,
-    name, memo,
+    name, nameRuby, memo,
     rating: selectedRating,
     price: price,
     priceType: price ? selectedPriceType : null,
-    maker, url,
+    maker, makerRuby, url,
     photo: pendingPhotoChanged ? pendingPhotoBlob : (existing ? existing.photo : null),
     order: existing ? existing.order : items.filter(i => i.genreId === selectedGenreId).length,
     createdAt: existing ? existing.createdAt : Date.now(),
@@ -1090,9 +1112,11 @@ function resetForm() {
   pendingPhotoChanged = false;
   updateGenreFieldLabel();
   document.getElementById('nameInput').value = '';
+  document.getElementById('nameRubyInput').value = '';
   document.getElementById('memoInput').value = '';
   document.getElementById('priceInput').value = '';
   document.getElementById('makerInput').value = '';
+  document.getElementById('makerRubyInput').value = '';
   document.getElementById('urlInput').value = '';
   updatePriceTypeButtons();
   renderStars();
@@ -1111,7 +1135,9 @@ function isFormDirty() {
     document.getElementById('nameInput').value.trim() ||
     document.getElementById('memoInput').value.trim() ||
     document.getElementById('priceInput').value ||
+    document.getElementById('nameRubyInput').value.trim() ||
     document.getElementById('makerInput').value.trim() ||
+    document.getElementById('makerRubyInput').value.trim() ||
     document.getElementById('urlInput').value.trim() ||
     previewUrl
   );
@@ -1135,6 +1161,7 @@ function startEdit(id) {
   selectedGenreId = it.genreId;
   updateGenreFieldLabel();
   document.getElementById('nameInput').value = it.name;
+  document.getElementById('nameRubyInput').value = it.nameRuby || '';
   document.getElementById('memoInput').value = it.memo || '';
   document.getElementById('priceInput').value = it.price || '';
   selectedPriceType = it.priceType;
@@ -1142,6 +1169,7 @@ function startEdit(id) {
   selectedRating = it.rating || 0;
   renderStars();
   document.getElementById('makerInput').value = it.maker || '';
+  document.getElementById('makerRubyInput').value = it.makerRuby || '';
   document.getElementById('urlInput').value = it.url || '';
   document.getElementById('urlWarning').style.display = 'none';
   pendingPhotoChanged = false;
@@ -1416,8 +1444,8 @@ async function exportBackup() {
     exportedAt: new Date().toISOString(),
     genres,
     items: await Promise.all(items.map(async it => ({
-      id: it.id, genreId: it.genreId, name: it.name, memo: it.memo, price: it.price,
-      priceType: it.priceType, rating: it.rating, maker: it.maker, url: it.url,
+      id: it.id, genreId: it.genreId, name: it.name, nameRuby: it.nameRuby, memo: it.memo, price: it.price,
+      priceType: it.priceType, rating: it.rating, maker: it.maker, makerRuby: it.makerRuby, url: it.url,
       order: it.order, createdAt: it.createdAt,
       photo: it.photo ? await blobToDataURL(it.photo) : null,
     }))),
