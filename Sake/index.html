@@ -27,17 +27,21 @@
     --bg:          #E8EBF0;
     --border:      #C4C9D4;
     --shadow:      0 1px 4px rgba(0,0,0,0.08);
-    --nav-h:       68px;
-    --actions-h:   62px;
   }
 
-  html, body { height: 100%; overscroll-behavior-y: contain; }
+  /* Real-viewport flex shell: avoids position:fixed bottom bars getting
+     hidden behind iOS Safari's own collapsible toolbar (dvh tracks the
+     toolbar show/hide, fixed-to-viewport-bottom does not). */
+  html { height: 100%; }
   body {
     font-family: "メイリオ", Meiryo, sans-serif;
     background: var(--white);
     color: var(--text);
-    min-height: 100vh;
-    padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
+    height: 100vh;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
   }
   button, input, textarea { font-family: inherit; }
 
@@ -46,9 +50,7 @@
     background: var(--white);
     border-bottom: 1px solid var(--border);
     padding: 12px 16px;
-    position: sticky;
-    top: 0;
-    z-index: 100;
+    flex-shrink: 0;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -61,14 +63,14 @@
   }
   .header-back svg, .header-settings svg { display: block; }
 
+  main { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; -webkit-overflow-scrolling: touch; }
+
   /* ---- Bottom Nav ---- */
   nav {
-    position: fixed;
-    bottom: 0; left: 0; right: 0;
+    flex-shrink: 0;
     background: var(--white);
     border-top: 1px solid var(--border);
     display: flex;
-    z-index: 100;
     padding-bottom: env(safe-area-inset-bottom);
   }
   nav button {
@@ -83,9 +85,6 @@
     flex-direction: column;
     align-items: center;
     gap: 2px;
-  }
-  nav {
-    -webkit-transform: translateZ(0); transform: translateZ(0);
   }
   nav button.active { color: var(--accent-ink); }
   nav button svg { display: block; }
@@ -141,14 +140,12 @@
   .star { cursor: pointer; color: var(--border); }
   .star.filled { color: var(--accent-mid); }
 
-  /* ---- Save/reset bar: fixed above bottom nav ---- */
+  /* ---- Save/reset bar: normal-flow flex item, always above the nav ---- */
   .form-actions {
-    position: fixed; left: 0; right: 0; bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
-    display: flex; gap: 8px; padding: 10px 16px;
+    display: none; flex-shrink: 0; gap: 8px; padding: 10px 16px;
     background: var(--white); border-top: 1px solid var(--border);
-    z-index: 90;
-    -webkit-transform: translateZ(0); transform: translateZ(0);
   }
+  .form-actions.show { display: flex; }
   .btn-save {
     flex: 1; background: var(--accent); color: var(--text); border: none; border-radius: 8px;
     padding: 13px; font-size: 15px; font-weight: bold; cursor: pointer;
@@ -274,7 +271,7 @@
 
   /* ---- Toast ---- */
   .toast {
-    position: fixed; bottom: calc(var(--nav-h) + var(--actions-h) + 12px); left: 50%; transform: translateX(-50%);
+    position: fixed; bottom: calc(140px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%);
     background: var(--text); color: var(--white); padding: 10px 18px; border-radius: 22px;
     font-size: 13px; opacity: 0; transition: opacity 0.3s; z-index: 400; pointer-events: none;
     white-space: nowrap; display: flex; align-items: center; gap: 12px;
@@ -364,17 +361,18 @@
         <div class="field-hint" id="urlWarning" style="display:none">URLの形式ではないようです（保存はできます）</div>
       </div>
     </div>
-    <div class="form-actions">
-      <button type="button" class="btn-cancel-edit" id="cancelEditBtn" style="display:none" onclick="cancelEdit()">キャンセル</button>
-      <button type="button" class="btn-reset" onclick="onResetClick()">リセット</button>
-      <button type="button" class="btn-save" onclick="saveItem()">保存</button>
-    </div>
   </div>
 
   <div id="tab-browse" class="tab">
     <div id="browseRoot"></div>
   </div>
 </main>
+
+<div class="form-actions" id="formActions">
+  <button type="button" class="btn-cancel-edit" id="cancelEditBtn" style="display:none" onclick="cancelEdit()">キャンセル</button>
+  <button type="button" class="btn-reset" onclick="onResetClick()">リセット</button>
+  <button type="button" class="btn-save" onclick="saveItem()">保存</button>
+</div>
 
 <nav>
   <button id="nav-input" onclick="switchTab('input')" class="active">
@@ -551,6 +549,7 @@ function switchTab(name) {
   document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
   document.getElementById('tab-' + name).classList.add('active');
   document.getElementById('nav-' + name).classList.add('active');
+  document.getElementById('formActions').classList.toggle('show', name === 'input');
   if (name === 'browse') renderBrowse();
   updateHeader();
 }
