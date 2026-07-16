@@ -1371,12 +1371,36 @@ function closeConfirm(result) {
 // ============================================================
 let toastUndoFn = null;
 let toastTimer = null;
+let lastTapX = null, lastTapY = null;
+document.addEventListener('pointerdown', (e) => { lastTapX = e.clientX; lastTapY = e.clientY; }, true);
+
+function positionToastNearTap(t) {
+  if (lastTapX == null) {
+    t.style.top = ''; t.style.bottom = 'calc(140px + env(safe-area-inset-bottom))';
+    t.style.left = '50%'; t.style.transform = 'translateX(-50%)';
+    return;
+  }
+  const GAP = 56; // clear of a finger resting on the tapped spot
+  const MARGIN = 8;
+  t.style.bottom = 'auto';
+  t.style.transform = 'translateX(-50%)';
+  t.style.left = lastTapX + 'px';
+  t.style.top = '-9999px'; // lay out off-screen first, just to measure size
+  const w = t.offsetWidth, h = t.offsetHeight;
+  let top = lastTapY - GAP - h;
+  if (top < MARGIN) top = lastTapY + GAP;
+  if (top + h > window.innerHeight - MARGIN) top = window.innerHeight - h - MARGIN;
+  const left = Math.min(Math.max(lastTapX, w / 2 + MARGIN), window.innerWidth - w / 2 - MARGIN);
+  t.style.left = left + 'px';
+  t.style.top = top + 'px';
+}
 function showUndoToast(msg, undoFn) {
   const t = document.getElementById('toast');
   document.getElementById('toastMsg').textContent = msg;
   const btn = document.getElementById('toastUndoBtn');
   toastUndoFn = undoFn;
   btn.style.display = undoFn ? 'inline' : 'none';
+  positionToastNearTap(t);
   t.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { t.classList.remove('show'); toastUndoFn = null; }, 5000);
