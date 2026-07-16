@@ -1,6 +1,6 @@
 {
-  "name": "Sake Log",
-  "short_name": "Sake",
+  "name": "Rove",
+  "short_name": "Rove",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
