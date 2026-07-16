@@ -60,11 +60,11 @@
     gap: 8px;
   }
   .header-title { font-size: 16px; font-weight: bold; flex: 1; text-align: center; }
-  .header-back, .header-settings {
+  .header-back, .header-action {
     background: none; border: none; color: var(--text2); cursor: pointer;
     width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
   }
-  .header-back svg, .header-settings svg { display: block; }
+  .header-back svg, .header-action-icon { display: block; }
 
   main { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; -webkit-overflow-scrolling: touch; }
 
@@ -203,9 +203,8 @@
     background: var(--bg); padding: 2px 9px; border-radius: 4px;
   }
   .detail-memo { white-space: pre-wrap; color: var(--text); margin-bottom: 14px; line-height: 1.7; font-size: 14px; }
-  .detail-link, .detail-link-plain { display: block; margin-bottom: 18px; word-break: break-all; font-size: 13px; }
+  .detail-maker { display: block; margin-bottom: 14px; word-break: break-all; font-size: 13px; color: var(--text2); }
   .detail-link { color: var(--accent-ink); }
-  .detail-link-plain { color: var(--text2); }
   .detail-actions { display: flex; gap: 8px; }
   .btn-edit, .btn-delete {
     flex: 1; background: none; border: 1px solid var(--border); border-radius: 6px;
@@ -229,24 +228,33 @@
     border-bottom: 1px solid var(--border); background: var(--bg);
     border-radius: 14px 14px 0 0; position: sticky; top: 0;
   }
-  .sel-sheet-manage-link { color: var(--accent-ink); font-size: 13px; font-weight: bold; cursor: pointer; }
   .sel-row { padding: 14px 16px; border-bottom: 1px solid var(--border); font-size: 15px; cursor: pointer; }
   .sel-row-add { color: var(--accent-ink); font-weight: bold; }
   .sel-row-danger { color: var(--danger); }
+  .sel-row-active { color: var(--accent-ink); font-weight: bold; }
+  .sort-arrow { color: var(--accent-mid); }
+
+  /* genre row: tap = select, swipe left = rename/delete action modal (Traqr pattern) */
+  .genre-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .genre-row-move { display: flex; gap: 4px; flex-shrink: 0; }
+  .genre-row-move button {
+    background: var(--bg); border: none; border-radius: 4px; width: 26px; height: 26px;
+    font-size: 11px; color: var(--text2); cursor: pointer;
+  }
+  .genre-row-move button:disabled { opacity: 0.3; }
 
   .genre-manage-row { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--border); }
   .genre-manage-name { flex: 1; border: none; border-bottom: 1px solid var(--border); padding: 9px 2px; font-size: 14px; }
-  .genre-manage-btns { display: flex; gap: 4px; flex-shrink: 0; }
-  .genre-manage-btns button {
-    background: var(--bg); border: none; border-radius: 4px; width: 30px; height: 30px;
-    font-size: 12px; color: var(--text2); cursor: pointer;
-  }
-  .genre-manage-btns button:disabled { opacity: 0.3; }
-  .genre-manage-del { color: var(--danger) !important; }
   .genre-manage-add-confirm {
     background: var(--accent); color: var(--text); border: none; border-radius: 6px;
     padding: 9px 14px; font-size: 13px; cursor: pointer; flex-shrink: 0;
   }
+  .ia-neutral { background: var(--accent-light); color: var(--accent-ink); }
+  .genre-rename-input {
+    width: 100%; border: none; border-bottom: 1px solid var(--border);
+    padding: 8px 2px; font-size: 15px; margin-bottom: 18px; outline: none;
+  }
+  .genre-rename-input:focus { border-color: var(--accent); }
 
   .settings-body { padding: 16px; display: flex; flex-direction: column; gap: 10px; }
   .settings-btn {
@@ -297,12 +305,13 @@
 <body>
 
 <header>
-  <button class="header-back" id="headerBack" onclick="popBrowse()" style="display:none" aria-label="戻る">
+  <button class="header-back" id="headerBack" onclick="popBrowse()" style="visibility:hidden" aria-label="戻る">
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
   </button>
   <div class="header-title" id="headerTitle">入力</div>
-  <button class="header-settings" onclick="openSettings()" aria-label="設定">
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+  <button class="header-action" id="headerAction" style="visibility:hidden" aria-label="メニュー">
+    <svg id="iconMenu" class="header-action-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    <svg id="iconSort" class="header-action-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M3 7h11"/><path d="M3 12h7"/><path d="M3 17h4"/><path d="M17 6v14"/><path d="M13 16l4 4 4-4"/></svg>
   </button>
 </header>
 
@@ -359,7 +368,12 @@
       </div>
 
       <div class="form-group">
-        <label>URL</label>
+        <label>製造元</label>
+        <input type="text" id="makerInput" class="form-input" placeholder="例：旭酒造">
+      </div>
+
+      <div class="form-group">
+        <label>リンク</label>
         <input type="url" id="urlInput" class="form-input" placeholder="https://..." onblur="checkUrlHint()">
         <div class="field-hint" id="urlWarning" style="display:none">URLの形式ではないようです（保存はできます）</div>
       </div>
@@ -393,14 +407,37 @@
   </button>
 </nav>
 
-<!-- Genre picker / manage sheet -->
+<!-- Genre picker / manage sheet: tap a row to select, swipe left for rename/delete -->
 <div id="genreSheetOverlay" class="sel-sheet-overlay" style="display:none" onclick="closeGenreSheet()"></div>
 <div id="genreSheetPanel" class="sel-sheet-panel" style="display:none">
   <div class="sel-sheet-title-bar">
     <span id="genreSheetTitleText">ジャンルを選択</span>
-    <span class="sel-sheet-manage-link" id="genreSheetManageLink" onclick="toggleGenreManageMode()">編集</span>
   </div>
   <div id="genreSheetList"></div>
+</div>
+
+<!-- Genre action modal (rename/delete choice, shown after swiping a genre row) -->
+<div id="genreActionModal" class="item-action-modal">
+  <div class="item-action-card">
+    <div class="item-action-card-title" id="genreActionTitle"></div>
+    <div class="item-action-btns">
+      <button type="button" class="item-action-btn ia-cancel" onclick="closeGenreActionModal()">キャンセル</button>
+      <button type="button" class="item-action-btn ia-neutral" onclick="startRenameGenre()">名前変更</button>
+      <button type="button" class="item-action-btn ia-ok" onclick="deleteGenreFromAction()">削除</button>
+    </div>
+  </div>
+</div>
+
+<!-- Genre rename modal -->
+<div id="genreRenameModal" class="item-action-modal">
+  <div class="item-action-card">
+    <div class="item-action-card-title">名前を変更</div>
+    <input type="text" id="genreRenameInput" class="genre-rename-input">
+    <div class="item-action-btns">
+      <button type="button" class="item-action-btn ia-cancel" onclick="closeGenreRenameModal()">キャンセル</button>
+      <button type="button" class="item-action-btn ia-neutral" onclick="confirmRenameGenre()">保存</button>
+    </div>
+  </div>
 </div>
 
 <!-- Photo action sheet -->
@@ -410,6 +447,13 @@
   <div class="sel-row" onclick="recropExistingPhoto()">トリム調整</div>
   <div class="sel-row" onclick="triggerPhotoPick()">新しい写真を選ぶ</div>
   <div class="sel-row sel-row-danger" onclick="deleteExistingPhoto()">削除</div>
+</div>
+
+<!-- Sort sheet -->
+<div id="sortSheetOverlay" class="sel-sheet-overlay" style="display:none" onclick="closeSortSheet()"></div>
+<div id="sortSheetPanel" class="sel-sheet-panel" style="display:none">
+  <div class="sel-sheet-title-bar"><span>並び替え</span></div>
+  <div id="sortSheetList"></div>
 </div>
 
 <!-- Settings sheet -->
@@ -546,6 +590,8 @@ let genres = [];
 let items = [];
 let currentTab = 'input';
 let browseStack = [{ type: 'genres' }];
+let itemSortField = 'createdAt';
+let itemSortDir = 'desc';
 
 let selectedGenreId = null;
 let selectedPriceType = null;
@@ -587,15 +633,24 @@ function switchTab(name) {
 }
 function updateHeader() {
   const showBack = currentTab === 'browse' && browseStack.length > 1;
-  document.getElementById('headerBack').style.display = showBack ? 'flex' : 'none';
+  document.getElementById('headerBack').style.visibility = showBack ? 'visible' : 'hidden';
   let title = editingItemId ? '編集' : '入力';
+  let actionMode = 'none';
   if (currentTab === 'browse') {
     const top = browseStack[browseStack.length - 1];
-    if (top.type === 'genres') title = '閲覧';
-    else if (top.type === 'items') title = genreById(top.genreId)?.name || '閲覧';
+    if (top.type === 'genres') { title = '閲覧'; actionMode = 'menu'; }
+    else if (top.type === 'items') { title = genreById(top.genreId)?.name || '閲覧'; actionMode = 'sort'; }
     else if (top.type === 'detail') title = itemById(top.itemId)?.name || '';
   }
   document.getElementById('headerTitle').textContent = title;
+  updateHeaderAction(actionMode);
+}
+function updateHeaderAction(mode) {
+  const btn = document.getElementById('headerAction');
+  document.getElementById('iconMenu').style.display = mode === 'menu' ? 'block' : 'none';
+  document.getElementById('iconSort').style.display = mode === 'sort' ? 'block' : 'none';
+  btn.style.visibility = mode === 'none' ? 'hidden' : 'visible';
+  btn.onclick = mode === 'menu' ? openSettings : (mode === 'sort' ? openSortSheet : null);
 }
 
 // ============================================================
@@ -635,15 +690,43 @@ function renderGenreGridHTML() {
   return `<div class="genre-grid">${html}</div>`;
 }
 
+function sortedItemsForGenre(genreId) {
+  return items.filter(i => i.genreId === genreId).sort((a, b) => {
+    let cmp;
+    if (itemSortField === 'name') cmp = (a.name || '').localeCompare(b.name || '', 'ja');
+    else if (itemSortField === 'rating') cmp = (a.rating || 0) - (b.rating || 0);
+    else cmp = (a.createdAt || 0) - (b.createdAt || 0);
+    return itemSortDir === 'desc' ? -cmp : cmp;
+  });
+}
 function renderItemGridHTML(genreId) {
-  const list = items.filter(i => i.genreId === genreId).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  const list = sortedItemsForGenre(genreId);
   if (list.length === 0) return `<div class="empty-state">まだ記録がありません。</div>`;
   const html = list.map(it => `
-    <div class="item-tile" onclick='pushBrowse(${JSON.stringify({ type: 'detail', itemId: it.id })})'>
+    <div class="item-tile" onclick='onTileClick("${it.id}")'
+      onpointerdown='onTileLongPressStart("${it.id}")' onpointerup='onTileLongPressEnd()'
+      onpointerleave='onTileLongPressEnd()' onpointercancel='onTileLongPressEnd()'>
       <div class="item-tile-photo">${itemTilePhotoHTML(it)}</div>
       <div class="item-tile-name">${esc(it.name)}</div>
     </div>`).join('');
   return `<div class="item-grid">${html}</div>`;
+}
+let tileLongPressTimer = null;
+let tileLongPressFired = false;
+function onTileLongPressStart(itemId) {
+  tileLongPressFired = false;
+  clearTimeout(tileLongPressTimer);
+  tileLongPressTimer = setTimeout(() => {
+    tileLongPressFired = true;
+    confirmDeleteItemFromGrid(itemId);
+  }, 550);
+}
+function onTileLongPressEnd() {
+  clearTimeout(tileLongPressTimer);
+}
+function onTileClick(itemId) {
+  if (tileLongPressFired) { tileLongPressFired = false; return; }
+  pushBrowse({ type: 'detail', itemId });
 }
 function itemTilePhotoHTML(it) {
   const url = photoUrlFor(it);
@@ -666,11 +749,12 @@ function renderDetailHTML(itemId) {
   const ratingHtml = it.rating ? `<div class="detail-rating">${starsHTML(it.rating)}</div>` : '';
   const priceHtml = it.price ? `<div class="detail-price">¥${fmt(it.price)}${it.priceType ? `<span class="detail-price-type">${esc(it.priceType)}</span>` : ''}</div>` : '';
   const memoHtml = it.memo ? `<div class="detail-memo">${esc(it.memo)}</div>` : '';
-  let linkHtml = '';
-  if (it.url) {
-    linkHtml = safeUrl(it.url)
-      ? `<a class="detail-link" href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.url)}</a>`
-      : `<div class="detail-link-plain">${esc(it.url)}</div>`;
+  let makerHtml = '';
+  if (it.maker || it.url) {
+    const label = it.maker || it.url;
+    makerHtml = safeUrl(it.url)
+      ? `<a class="detail-maker detail-link" href="${esc(it.url)}" target="_blank" rel="noopener">${esc(label)}</a>`
+      : `<div class="detail-maker">${esc(label)}</div>`;
   }
   return `
     <div class="detail-photo">${photoHtml}</div>
@@ -679,8 +763,8 @@ function renderDetailHTML(itemId) {
       <h2 class="detail-name">${esc(it.name)}</h2>
       ${ratingHtml}
       ${priceHtml}
+      ${makerHtml}
       ${memoHtml}
-      ${linkHtml}
       <div class="detail-actions">
         <button type="button" class="btn-edit" onclick="startEdit('${it.id}')">編集</button>
         <button type="button" class="btn-delete" onclick="confirmDeleteItem('${it.id}')">削除</button>
@@ -690,12 +774,12 @@ function renderDetailHTML(itemId) {
 
 // ============================================================
 //  Genre picker / manage sheet
+//  Tap a row = select genre. Swipe a row left = rename/delete action
+//  modal, matching Traqr's category-list interaction.
 // ============================================================
-let genreManageMode = false;
 let addingGenre = false;
 
 function openGenreSheet() {
-  genreManageMode = false;
   addingGenre = false;
   renderGenreSheet();
   document.getElementById('genreSheetOverlay').style.display = 'block';
@@ -705,40 +789,70 @@ function closeGenreSheet() {
   document.getElementById('genreSheetOverlay').style.display = 'none';
   document.getElementById('genreSheetPanel').style.display = 'none';
 }
-function toggleGenreManageMode() {
-  genreManageMode = !genreManageMode;
-  addingGenre = false;
-  renderGenreSheet();
-}
 function renderGenreSheet() {
-  document.getElementById('genreSheetTitleText').textContent = genreManageMode ? 'ジャンル管理' : 'ジャンルを選択';
-  document.getElementById('genreSheetManageLink').textContent = genreManageMode ? '完了' : '編集';
   const sorted = [...genres].sort((a, b) => a.order - b.order);
   const list = document.getElementById('genreSheetList');
-  let html;
-  if (!genreManageMode) {
-    html = sorted.map(g => `<div class="sel-row" onclick="selectGenre('${g.id}')">${esc(g.name)}</div>`).join('');
-  } else {
-    html = sorted.map((g, idx) => `
-      <div class="genre-manage-row">
-        <input type="text" class="genre-manage-name" value="${esc(g.name)}" onchange="renameGenre('${g.id}', this.value)">
-        <div class="genre-manage-btns">
-          <button type="button" ${idx === 0 ? 'disabled' : ''} onclick="moveGenre('${g.id}', -1)">▲</button>
-          <button type="button" ${idx === sorted.length - 1 ? 'disabled' : ''} onclick="moveGenre('${g.id}', 1)">▼</button>
-          <button type="button" class="genre-manage-del" onclick="requestDeleteGenre('${g.id}')">🗑</button>
-        </div>
-      </div>`).join('');
-    if (addingGenre) {
-      html += `
-      <div class="genre-manage-row">
-        <input type="text" id="newGenreInput" class="genre-manage-name" placeholder="ジャンル名" onkeydown="if(event.key==='Enter')confirmAddGenre()">
-        <button type="button" class="genre-manage-add-confirm" onclick="confirmAddGenre()">追加</button>
-      </div>`;
-    }
+  let html = sorted.map((g, idx) => `
+    <div class="sel-row genre-row" onclick="selectGenre('${g.id}')"
+      ontouchstart="onGenreSwipeStart(event)" ontouchend="onGenreSwipeEnd(event, '${g.id}')"
+      onmousedown="onGenreDragStart(event)" onmouseup="onGenreDragEnd(event, '${g.id}')">
+      <span class="genre-row-name">${esc(g.name)}</span>
+      <span class="genre-row-move">
+        <button type="button" onclick="event.stopPropagation(); moveGenre('${g.id}', -1)" ${idx === 0 ? 'disabled' : ''}>▲</button>
+        <button type="button" onclick="event.stopPropagation(); moveGenre('${g.id}', 1)" ${idx === sorted.length - 1 ? 'disabled' : ''}>▼</button>
+      </span>
+    </div>`).join('');
+  if (addingGenre) {
+    html += `
+    <div class="genre-manage-row">
+      <input type="text" id="newGenreInput" class="genre-manage-name" placeholder="ジャンル名" onkeydown="if(event.key==='Enter')confirmAddGenre()">
+      <button type="button" class="genre-manage-add-confirm" onclick="confirmAddGenre()">追加</button>
+    </div>`;
   }
   html += `<div class="sel-row sel-row-add" onclick="addGenrePrompt()">＋ 新しいジャンルを追加</div>`;
   list.innerHTML = html;
   if (addingGenre) setTimeout(() => document.getElementById('newGenreInput')?.focus(), 0);
+}
+let genreSwipeStartX = 0;
+function onGenreSwipeStart(e) { genreSwipeStartX = e.touches[0].clientX; }
+function onGenreSwipeEnd(e, id) {
+  if (genreSwipeStartX - e.changedTouches[0].clientX > 40) { e.preventDefault(); openGenreAction(id); }
+}
+function onGenreDragStart(e) { genreSwipeStartX = e.clientX; }
+function onGenreDragEnd(e, id) {
+  if (genreSwipeStartX - e.clientX > 40) { e.preventDefault(); openGenreAction(id); }
+}
+let genreActionId = null;
+function openGenreAction(id) {
+  genreActionId = id;
+  const g = genreById(id);
+  document.getElementById('genreActionTitle').textContent = `「${g.name}」への操作を選択してください`;
+  document.getElementById('genreActionModal').classList.add('show');
+}
+function closeGenreActionModal() {
+  document.getElementById('genreActionModal').classList.remove('show');
+}
+function startRenameGenre() {
+  closeGenreActionModal();
+  const g = genreById(genreActionId);
+  document.getElementById('genreRenameInput').value = g.name;
+  document.getElementById('genreRenameModal').classList.add('show');
+  setTimeout(() => document.getElementById('genreRenameInput').focus(), 0);
+}
+function closeGenreRenameModal() {
+  document.getElementById('genreRenameModal').classList.remove('show');
+}
+async function confirmRenameGenre() {
+  const name = document.getElementById('genreRenameInput').value.trim();
+  const id = genreActionId;
+  closeGenreRenameModal();
+  if (!name) return;
+  await renameGenre(id, name);
+}
+async function deleteGenreFromAction() {
+  const id = genreActionId;
+  closeGenreActionModal();
+  await requestDeleteGenre(id);
 }
 function selectGenre(id) {
   selectedGenreId = id;
@@ -753,7 +867,6 @@ function updateGenreFieldLabel() {
   else { label.textContent = 'ジャンルを選択'; label.classList.add('picker-placeholder'); }
 }
 function addGenrePrompt() {
-  genreManageMode = true;
   addingGenre = true;
   renderGenreSheet();
 }
@@ -852,6 +965,7 @@ async function saveItem() {
   if (price && !selectedPriceType) { document.getElementById('priceTypeWarning').style.display = 'block'; valid = false; }
   if (!valid) return;
 
+  const maker = document.getElementById('makerInput').value.trim();
   const url = document.getElementById('urlInput').value.trim();
   const memo = document.getElementById('memoInput').value.trim();
 
@@ -866,7 +980,7 @@ async function saveItem() {
     rating: selectedRating,
     price: price,
     priceType: price ? selectedPriceType : null,
-    url,
+    maker, url,
     photo: pendingPhotoChanged ? pendingPhotoBlob : (existing ? existing.photo : null),
     order: existing ? existing.order : items.filter(i => i.genreId === selectedGenreId).length,
     createdAt: existing ? existing.createdAt : Date.now(),
@@ -892,6 +1006,7 @@ function resetForm() {
   document.getElementById('nameInput').value = '';
   document.getElementById('memoInput').value = '';
   document.getElementById('priceInput').value = '';
+  document.getElementById('makerInput').value = '';
   document.getElementById('urlInput').value = '';
   updatePriceTypeButtons();
   renderStars();
@@ -910,6 +1025,7 @@ function isFormDirty() {
     document.getElementById('nameInput').value.trim() ||
     document.getElementById('memoInput').value.trim() ||
     document.getElementById('priceInput').value ||
+    document.getElementById('makerInput').value.trim() ||
     document.getElementById('urlInput').value.trim() ||
     previewUrl
   );
@@ -939,6 +1055,7 @@ function startEdit(id) {
   updatePriceTypeButtons();
   selectedRating = it.rating || 0;
   renderStars();
+  document.getElementById('makerInput').value = it.maker || '';
   document.getElementById('urlInput').value = it.url || '';
   document.getElementById('urlWarning').style.display = 'none';
   pendingPhotoChanged = false;
@@ -949,19 +1066,30 @@ function startEdit(id) {
   switchTab('input');
 }
 
-async function confirmDeleteItem(id) {
-  const ok = await askConfirm('この記録を削除しますか？');
-  if (!ok) return;
+async function deleteItemCore(id) {
   const it = itemById(id);
   await del('items', id);
   items = items.filter(i => i.id !== id);
   if (it._photoUrl) { URL.revokeObjectURL(it._photoUrl); it._photoUrl = null; }
-  popBrowse();
   showUndoToast(`「${it.name}」を削除しました`, async () => {
     await put('items', it);
     items.push(it);
     renderBrowse();
   });
+}
+async function confirmDeleteItem(id) {
+  const ok = await askConfirm('この記録を削除しますか？');
+  if (!ok) return;
+  await deleteItemCore(id);
+  popBrowse();
+}
+async function confirmDeleteItemFromGrid(id) {
+  const it = itemById(id);
+  if (!it) return;
+  const ok = await askConfirm(`「${it.name}」を削除しますか？`);
+  if (!ok) return;
+  await deleteItemCore(id);
+  renderBrowse();
 }
 
 // ============================================================
@@ -1147,6 +1275,34 @@ document.getElementById('toastUndoBtn').onclick = () => {
 };
 
 // ============================================================
+//  Sort sheet
+// ============================================================
+const SORT_FIELDS = [['createdAt', '投稿日'], ['rating', 'スコア'], ['name', '名称']];
+function openSortSheet() {
+  renderSortSheet();
+  document.getElementById('sortSheetOverlay').style.display = 'block';
+  document.getElementById('sortSheetPanel').style.display = 'block';
+}
+function closeSortSheet() {
+  document.getElementById('sortSheetOverlay').style.display = 'none';
+  document.getElementById('sortSheetPanel').style.display = 'none';
+}
+function renderSortSheet() {
+  const html = SORT_FIELDS.map(([key, label]) => {
+    const active = itemSortField === key;
+    const arrow = active ? (itemSortDir === 'desc' ? '↓' : '↑') : '';
+    return `<div class="sel-row${active ? ' sel-row-active' : ''}" onclick="selectSort('${key}')">${label}${arrow ? ` <span class="sort-arrow">${arrow}</span>` : ''}</div>`;
+  }).join('');
+  document.getElementById('sortSheetList').innerHTML = html;
+}
+function selectSort(key) {
+  if (itemSortField === key) itemSortDir = itemSortDir === 'desc' ? 'asc' : 'desc';
+  else { itemSortField = key; itemSortDir = 'desc'; }
+  renderSortSheet();
+  renderBrowse();
+}
+
+// ============================================================
 //  Settings / backup
 // ============================================================
 function openSettings() {
@@ -1175,7 +1331,8 @@ async function exportBackup() {
     genres,
     items: await Promise.all(items.map(async it => ({
       id: it.id, genreId: it.genreId, name: it.name, memo: it.memo, price: it.price,
-      priceType: it.priceType, url: it.url, order: it.order, createdAt: it.createdAt,
+      priceType: it.priceType, rating: it.rating, maker: it.maker, url: it.url,
+      order: it.order, createdAt: it.createdAt,
       photo: it.photo ? await blobToDataURL(it.photo) : null,
     }))),
   };
