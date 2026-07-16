@@ -490,7 +490,7 @@
 </div>
 
 <!-- Toast -->
-<div id="toast" class="toast">
+<div id="toast" class="toast" onclick="dismissToast()">
   <span id="toastMsg"></span>
   <button type="button" id="toastUndoBtn" class="toast-undo" style="display:none">元に戻す</button>
 </div>
@@ -1382,10 +1382,14 @@ function showUndoToast(msg, undoFn) {
   toastTimer = setTimeout(() => { t.classList.remove('show'); toastUndoFn = null; }, 5000);
 }
 function showToast(msg) { showUndoToast(msg, null); }
-document.getElementById('toastUndoBtn').onclick = () => {
-  if (toastUndoFn) { toastUndoFn(); toastUndoFn = null; }
+function dismissToast() {
   document.getElementById('toast').classList.remove('show');
   clearTimeout(toastTimer);
+}
+document.getElementById('toastUndoBtn').onclick = (e) => {
+  e.stopPropagation();
+  if (toastUndoFn) { toastUndoFn(); toastUndoFn = null; }
+  dismissToast();
 };
 
 // ============================================================
