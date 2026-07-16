@@ -30,8 +30,11 @@
   }
 
   /* Real-viewport flex shell: avoids position:fixed bottom bars getting
-     hidden behind iOS Safari's own collapsible toolbar (dvh tracks the
-     toolbar show/hide, fixed-to-viewport-bottom does not). */
+     hidden behind iOS Safari's own collapsible toolbar. `100dvh` is the
+     CSS-only approximation (used until JS runs, and as a fallback if
+     visualViewport is unavailable); syncViewportHeight() below overrides
+     it with the actual visualViewport height via inline style, since
+     `dvh` support/behavior is inconsistent across older iOS Safari. */
   html { height: 100%; }
   body {
     font-family: "メイリオ", Meiryo, sans-serif;
@@ -453,6 +456,35 @@
 </div>
 
 <script>
+// ============================================================
+//  Real viewport height (iOS Safari's collapsible toolbar resizes
+//  visualViewport but not always `dvh`/`vh` consistently across versions;
+//  set body's actual pixel height explicitly and keep it in sync)
+// ============================================================
+function syncViewportHeight() {
+  const h = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+  document.body.style.height = h + 'px';
+}
+syncViewportHeight();
+window.addEventListener('resize', syncViewportHeight);
+window.addEventListener('orientationchange', syncViewportHeight);
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', syncViewportHeight);
+  window.visualViewport.addEventListener('scroll', syncViewportHeight);
+}
+
+// ============================================================
+//  Surface otherwise-silent JS errors as a toast (a button whose handler
+//  throws would look like "nothing happens" without this)
+// ============================================================
+window.addEventListener('error', (e) => {
+  showToast('エラー: ' + (e.message || '不明なエラー'));
+});
+window.addEventListener('unhandledrejection', (e) => {
+  const msg = (e.reason && e.reason.message) ? e.reason.message : String(e.reason);
+  showToast('エラー: ' + msg);
+});
+
 // ============================================================
 //  IndexedDB
 // ============================================================
