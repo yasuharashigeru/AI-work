@@ -539,26 +539,22 @@ if (window.visualViewport) {
   window.visualViewport.addEventListener('scroll', syncViewportHeight);
 }
 
-// iOS Safari's own "scroll the focused input into view" can end up
-// racing against the visualViewport resize above and leave the layout
-// in an odd state (nav stranded near the top, a large blank gap above
-// the keyboard). Take explicit control instead: while a field is
-// focused, hide the bottom tab nav entirely (not needed while typing)
-// so the save/reset bar becomes the true bottom of the layout, sitting
-// flush above the keyboard; once the keyboard has had time to finish
-// animating in, scroll the focused field to the center of whatever's
-// now visible ourselves.
+// While a field is focused, hide the bottom tab nav entirely (not
+// needed while typing) so the save/reset bar becomes the true bottom
+// of the layout, sitting flush above the keyboard. Deliberately NOT
+// doing our own scrollIntoView here anymore: it was firing in addition
+// to iOS's own native "scroll the focused input into view" behavior,
+// and the two fighting each other (ours 320ms after focus, native
+// immediate) was a plausible cause of landing in a worse spot than
+// either alone would - trust the native behavior against <main>
+// (still the only overflow-y:auto ancestor) instead of layering our
+// own on top of it.
 let keyboardHideTimer = null;
-let scrollIntoViewTimer = null;
 document.addEventListener('focusin', (e) => {
   const t = e.target;
   if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA') {
     clearTimeout(keyboardHideTimer);
-    clearTimeout(scrollIntoViewTimer);
     document.body.classList.add('keyboard-open');
-    scrollIntoViewTimer = setTimeout(() => {
-      if (document.activeElement === t) t.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    }, 320);
   }
 });
 document.addEventListener('focusout', (e) => {
