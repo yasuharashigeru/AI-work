@@ -85,6 +85,10 @@
     display: flex;
     padding-bottom: env(safe-area-inset-bottom);
   }
+  /* while a field is focused, drop the nav so the save/reset bar sits
+     flush above the keyboard instead of the keyboard covering (or
+     leaving a gap under) the nav */
+  body.keyboard-open nav { display: none; }
   nav button {
     flex: 1;
     background: none;
@@ -534,6 +538,33 @@ if (window.visualViewport) {
   window.visualViewport.addEventListener('resize', syncViewportHeight);
   window.visualViewport.addEventListener('scroll', syncViewportHeight);
 }
+
+// iOS Safari's own "scroll the focused input into view" can end up
+// racing against the visualViewport resize above and leave the layout
+// in an odd state (nav stranded near the top, a large blank gap above
+// the keyboard). Take explicit control instead: while a field is
+// focused, hide the bottom tab nav entirely (not needed while typing)
+// so the save/reset bar becomes the true bottom of the layout, sitting
+// flush above the keyboard; once the keyboard has had time to finish
+// animating in, scroll the focused field to the center of whatever's
+// now visible ourselves.
+let keyboardHideTimer = null;
+document.addEventListener('focusin', (e) => {
+  const t = e.target;
+  if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA') {
+    clearTimeout(keyboardHideTimer);
+    document.body.classList.add('keyboard-open');
+    setTimeout(() => { t.scrollIntoView({ block: 'center', behavior: 'smooth' }); }, 320);
+  }
+});
+document.addEventListener('focusout', (e) => {
+  const t = e.target;
+  if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA') {
+    // brief delay so tabbing straight to another field doesn't flicker the nav
+    clearTimeout(keyboardHideTimer);
+    keyboardHideTimer = setTimeout(() => { document.body.classList.remove('keyboard-open'); }, 150);
+  }
+});
 
 // ============================================================
 //  Surface otherwise-silent JS errors as a toast (a button whose handler
