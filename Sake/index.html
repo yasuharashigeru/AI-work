@@ -635,11 +635,23 @@ function photoUrlFor(it) {
   if (!it._photoUrl) it._photoUrl = URL.createObjectURL(it.photo);
   return it._photoUrl;
 }
+// Self-heals a broken <img> by minting a fresh blob: URL from the
+// underlying Blob — a stale/revoked object URL can fail to resolve
+// later (e.g. iOS reclaiming memory while the PWA is backgrounded)
+// even though the original data is still perfectly intact.
+function onPhotoImgError(img, itemId) {
+  const it = itemById(itemId);
+  if (!it || !it.photo) return;
+  if (it._photoUrl) { URL.revokeObjectURL(it._photoUrl); it._photoUrl = null; }
+  img.onerror = null; // avoid a retry loop if the Blob itself is somehow bad
+  img.src = photoUrlFor(it);
+}
 
 // ============================================================
 //  Tabs / header
 // ============================================================
 function switchTab(name) {
+  dismissToast();
   currentTab = name;
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
@@ -675,15 +687,16 @@ function updateHeaderAction(mode) {
 //  Browse navigation
 // ============================================================
 function pushBrowse(screen) {
+  dismissToast();
   browseStack.push(screen);
   history.pushState({ browseDepth: browseStack.length }, '');
   renderBrowse();
 }
 function popBrowse() {
-  if (browseStack.length > 1) { browseStack.pop(); renderBrowse(); }
+  if (browseStack.length > 1) { dismissToast(); browseStack.pop(); renderBrowse(); }
 }
 window.addEventListener('popstate', () => {
-  if (currentTab === 'browse' && browseStack.length > 1) { browseStack.pop(); renderBrowse(); }
+  if (currentTab === 'browse' && browseStack.length > 1) { dismissToast(); browseStack.pop(); renderBrowse(); }
 });
 
 function renderBrowse() {
@@ -749,7 +762,7 @@ function onTileClick(itemId) {
 function itemTilePhotoHTML(it) {
   const url = photoUrlFor(it);
   const ratingHtml = it.rating ? `<span class="item-tile-rating">★${it.rating}</span>` : '';
-  if (url) return `<img src="${url}" alt="">${ratingHtml}`;
+  if (url) return `<img src="${url}" alt="" onerror="onPhotoImgError(this, '${it.id}')">${ratingHtml}`;
   return `<div class="item-tile-placeholder">${esc((it.name || '?').charAt(0))}</div>${ratingHtml}`;
 }
 function starsHTML(rating) {
@@ -763,7 +776,7 @@ function renderDetailHTML(itemId) {
   if (!it) return `<div class="empty-state">この記録は削除されました。</div>`;
   const g = genreById(it.genreId);
   const url = photoUrlFor(it);
-  const photoHtml = url ? `<img src="${url}" alt="">` : `<div class="detail-photo-placeholder">${esc((it.name || '?').charAt(0))}</div>`;
+  const photoHtml = url ? `<img src="${url}" alt="" onerror="onPhotoImgError(this, '${it.id}')">` : `<div class="detail-photo-placeholder">${esc((it.name || '?').charAt(0))}</div>`;
   const ratingHtml = it.rating ? `<div class="detail-rating">${starsHTML(it.rating)}</div>` : '';
   const priceHtml = it.price ? `<div class="detail-price">¥${fmt(it.price)}${it.priceType ? `<span class="detail-price-type">${esc(it.priceType)}</span>` : ''}</div>` : '';
   const memoHtml = it.memo ? `<div class="detail-memo">${esc(it.memo)}</div>` : '';
@@ -785,8 +798,8 @@ function renderDetailHTML(itemId) {
         ${ratingHtml}
         ${priceHtml}
         ${makerHtml}
-        ${linkHtml}
         ${memoHtml}
+        ${linkHtml}
         <div class="detail-actions">
           <button type="button" class="btn-edit" onclick="startEdit('${it.id}')">編集</button>
           <button type="button" class="btn-delete" onclick="confirmDeleteItem('${it.id}')">削除</button>
@@ -830,6 +843,7 @@ function swipeToAdjacentItem(direction) {
   const idx = list.findIndex(i => i.id === it.id);
   const newItem = list[idx + direction];
   if (!newItem) return; // at the first/last item already
+  dismissToast();
 
   const root = document.getElementById('browseRoot');
   const oldHTML = root.innerHTML;
@@ -1147,7 +1161,12 @@ async function saveItem() {
 
   const isEdit = !!editingItemId;
   const existing = isEdit ? itemById(editingItemId) : null;
-  if (existing && existing._photoUrl) { URL.revokeObjectURL(existing._photoUrl); }
+  // Only revoke the cached display URL if the photo is actually being
+  // replaced/removed — revoking it just because some other field changed
+  // left a window where an already-rendered <img> could reference a
+  // revoked blob: URL (iOS Safari can re-resolve it later, e.g. after
+  // reclaiming memory in the background, and fail with a broken image).
+  if (existing && pendingPhotoChanged && existing._photoUrl) { URL.revokeObjectURL(existing._photoUrl); }
 
   const record = {
     id: isEdit ? editingItemId : crypto.randomUUID(),
@@ -1161,14 +1180,15 @@ async function saveItem() {
     order: existing ? existing.order : items.filter(i => i.genreId === selectedGenreId).length,
     createdAt: existing ? existing.createdAt : Date.now(),
   };
+  if (!pendingPhotoChanged && existing && existing._photoUrl) record._photoUrl = existing._photoUrl;
   await put('items', record);
   if (isEdit) items = items.map(i => i.id === record.id ? record : i);
   else items.push(record);
 
   const wasEdit = isEdit;
-  showToast(wasEdit ? '更新しました' : '保存しました');
   resetForm();
   if (wasEdit) switchTab('browse');
+  showToast(wasEdit ? '更新しました' : '保存しました');
 }
 
 function resetForm() {
@@ -1253,6 +1273,9 @@ async function deleteItemCore(id) {
   await del('items', id);
   items = items.filter(i => i.id !== id);
   if (it._photoUrl) { URL.revokeObjectURL(it._photoUrl); it._photoUrl = null; }
+  return it;
+}
+function showItemUndoToast(it) {
   showUndoToast(`「${it.name}」を削除しました`, async () => {
     await put('items', it);
     items.push(it);
@@ -1262,8 +1285,9 @@ async function deleteItemCore(id) {
 async function confirmDeleteItem(id) {
   const ok = await askConfirm('この記録を削除しますか？');
   if (!ok) return;
-  await deleteItemCore(id);
+  const it = await deleteItemCore(id);
   popBrowse();
+  showItemUndoToast(it);
 }
 async function confirmDeleteItemFromGrid(id) {
   const it = itemById(id);
@@ -1272,6 +1296,7 @@ async function confirmDeleteItemFromGrid(id) {
   if (!ok) return;
   await deleteItemCore(id);
   renderBrowse();
+  showItemUndoToast(it);
 }
 
 // ============================================================
