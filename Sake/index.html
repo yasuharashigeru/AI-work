@@ -545,13 +545,28 @@ if (window.visualViewport) {
   window.visualViewport.addEventListener('resize', syncViewportHeight);
   window.visualViewport.addEventListener('scroll', syncViewportHeight);
 }
+// focusout on field A fires BEFORE focusin on field B when the user
+// taps straight from one field to another - the keyboard never
+// actually closes in between, but re-syncing immediately on focusout
+// was capturing whatever transitional visualViewport value existed at
+// that in-between instant and freezing on THAT (wrong) value once
+// focusin re-armed the freeze, producing a stray blank gap. Debounce
+// the unfreeze so a same-field-to-another-field switch never triggers
+// a resync at all - only a genuine "focus left every field" does.
+let unfreezeTimer = null;
 document.addEventListener('focusin', (e) => {
-  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') fieldIsFocused = true;
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+    clearTimeout(unfreezeTimer);
+    fieldIsFocused = true;
+  }
 });
 document.addEventListener('focusout', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
-    fieldIsFocused = false;
-    syncViewportHeight(); // re-sync once the keyboard is gone, in case the toolbar state changed meanwhile
+    clearTimeout(unfreezeTimer);
+    unfreezeTimer = setTimeout(() => {
+      fieldIsFocused = false;
+      syncViewportHeight(); // re-sync once the keyboard is gone, in case the toolbar state changed meanwhile
+    }, 150);
   }
 });
 
