@@ -345,8 +345,8 @@
 
       <div class="form-group">
         <label>名称<span class="req">*</span></label>
-        <input type="text" id="nameInput" class="form-input" placeholder="例：獺祭 純米大吟醸">
-        <input type="text" id="nameRubyInput" class="form-input form-input-sub" placeholder="ふりがな（任意）">
+        <input type="text" id="nameInput" class="form-input" placeholder="例：獺祭 純米大吟醸" autocomplete="off">
+        <input type="text" id="nameRubyInput" class="form-input form-input-sub" placeholder="ふりがな（任意）" autocomplete="off">
         <div class="field-warning" id="nameWarning" style="display:none">名称を入力してください</div>
       </div>
 
@@ -369,13 +369,13 @@
 
       <div class="form-group">
         <label>メモ</label>
-        <textarea id="memoInput" class="form-input" rows="2" placeholder="味の感想など"></textarea>
+        <textarea id="memoInput" class="form-input" rows="2" placeholder="味の感想など" autocomplete="off"></textarea>
       </div>
 
       <div class="form-group">
         <label>価格</label>
         <div class="price-row">
-          <input type="number" id="priceInput" class="form-input price-input" placeholder="円" inputmode="numeric" min="0">
+          <input type="number" id="priceInput" class="form-input price-input" placeholder="円" inputmode="numeric" min="0" autocomplete="off">
           <div class="segmented" id="priceTypeSeg">
             <button type="button" data-v="一杯価格" onclick="selectPriceType('一杯価格')">一杯価格</button>
             <button type="button" data-v="購入価格" onclick="selectPriceType('購入価格')">購入価格</button>
@@ -386,13 +386,13 @@
 
       <div class="form-group">
         <label>製造元</label>
-        <input type="text" id="makerInput" class="form-input" placeholder="例：旭酒造">
-        <input type="text" id="makerRubyInput" class="form-input form-input-sub" placeholder="ふりがな（任意）">
+        <input type="text" id="makerInput" class="form-input" placeholder="例：旭酒造" autocomplete="off">
+        <input type="text" id="makerRubyInput" class="form-input form-input-sub" placeholder="ふりがな（任意）" autocomplete="off">
       </div>
 
       <div class="form-group">
         <label>購入リンク</label>
-        <input type="url" id="urlInput" class="form-input" placeholder="https://..." onblur="checkUrlHint()">
+        <input type="url" id="urlInput" class="form-input" placeholder="https://..." onblur="checkUrlHint()" autocomplete="off">
         <div class="field-hint" id="urlWarning" style="display:none">URLの形式ではないようです（保存はできます）</div>
       </div>
     </div>
@@ -450,7 +450,7 @@
 <div id="genreRenameModal" class="item-action-modal">
   <div class="item-action-card">
     <div class="item-action-card-title">名前を変更</div>
-    <input type="text" id="genreRenameInput" class="genre-rename-input">
+    <input type="text" id="genreRenameInput" class="genre-rename-input" autocomplete="off">
     <div class="item-action-btns">
       <button type="button" class="item-action-btn ia-cancel" onclick="closeGenreRenameModal()">キャンセル</button>
       <button type="button" class="item-action-btn ia-neutral" onclick="confirmRenameGenre()">保存</button>
@@ -940,7 +940,7 @@ function renderGenreSheet() {
   if (addingGenre) {
     html += `
     <div class="genre-manage-row">
-      <input type="text" id="newGenreInput" class="genre-manage-name" placeholder="ジャンル名" onkeydown="if(event.key==='Enter')confirmAddGenre()">
+      <input type="text" id="newGenreInput" class="genre-manage-name" placeholder="ジャンル名" onkeydown="if(event.key==='Enter')confirmAddGenre()" autocomplete="off">
       <button type="button" class="genre-manage-add-confirm" onclick="confirmAddGenre()">追加</button>
     </div>`;
   }
