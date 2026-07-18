@@ -307,7 +307,7 @@
     font-size: 13px; opacity: 0; transition: opacity 0.3s; z-index: 400; pointer-events: none;
     white-space: nowrap; display: flex; align-items: center; gap: 12px;
   }
-  .toast.show { opacity: 1; }
+  .toast.show { opacity: 1; pointer-events: auto; }
   .toast-undo { background: none; border: none; color: #9FE3F8; font-weight: bold; font-size: 13px; text-decoration: underline; pointer-events: auto; cursor: pointer; padding: 0; }
 
   /* ---- Crop modal ---- */
@@ -549,12 +549,16 @@ if (window.visualViewport) {
 // animating in, scroll the focused field to the center of whatever's
 // now visible ourselves.
 let keyboardHideTimer = null;
+let scrollIntoViewTimer = null;
 document.addEventListener('focusin', (e) => {
   const t = e.target;
   if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA') {
     clearTimeout(keyboardHideTimer);
+    clearTimeout(scrollIntoViewTimer);
     document.body.classList.add('keyboard-open');
-    setTimeout(() => { t.scrollIntoView({ block: 'center', behavior: 'smooth' }); }, 320);
+    scrollIntoViewTimer = setTimeout(() => {
+      if (document.activeElement === t) t.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }, 320);
   }
 });
 document.addEventListener('focusout', (e) => {
@@ -865,7 +869,9 @@ function onDetailSwipeEnd(e) {
   swipeToAdjacentItem(dx < 0 ? 1 : -1);
 }
 function onDetailSwipeCancel() { detailSwipe = null; }
+let detailSlideInProgress = false;
 function swipeToAdjacentItem(direction) {
+  if (detailSlideInProgress) return; // ignore a swipe that lands mid-transition
   const top = browseStack[browseStack.length - 1];
   if (!top || top.type !== 'detail') return;
   const it = itemById(top.itemId);
@@ -875,6 +881,7 @@ function swipeToAdjacentItem(direction) {
   const newItem = list[idx + direction];
   if (!newItem) return; // at the first/last item already
   dismissToast();
+  detailSlideInProgress = true;
 
   const root = document.getElementById('browseRoot');
   const oldHTML = root.innerHTML;
@@ -896,6 +903,7 @@ function swipeToAdjacentItem(direction) {
     browseStack[browseStack.length - 1] = { type: 'detail', itemId: newItem.id };
     history.replaceState({ browseDepth: browseStack.length }, '');
     renderBrowse();
+    detailSlideInProgress = false;
   }, 220);
 }
 function showRubyToastFrom(el) {
@@ -1014,6 +1022,7 @@ function startGenreReorder(pointerId) {
   g.rows = Array.from(g.list.querySelectorAll('.genre-row'));
   g.row.classList.add('genre-row-dragging');
   g.row.style.zIndex = 10;
+  g.row.style.touchAction = 'none'; // hand full control to JS, stop the browser's own vertical pan fighting the drag
   try { g.row.setPointerCapture(pointerId); } catch (e) {}
 }
 function moveGenreReorder(e) {
@@ -1045,6 +1054,7 @@ async function endGenreReorder() {
   g.row.classList.remove('genre-row-dragging');
   g.row.style.transform = '';
   g.row.style.zIndex = '';
+  g.row.style.touchAction = '';
   const orderedIds = g.rows.map(r => r.dataset.genreId);
   for (let i = 0; i < orderedIds.length; i++) {
     const gen = genreById(orderedIds[i]);
