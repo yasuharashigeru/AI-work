@@ -85,10 +85,6 @@
     display: flex;
     padding-bottom: env(safe-area-inset-bottom);
   }
-  /* while a field is focused, drop the nav so the save/reset bar sits
-     flush above the keyboard instead of the keyboard covering (or
-     leaving a gap under) the nav */
-  body.keyboard-open nav { display: none; }
   nav button {
     flex: 1;
     background: none;
@@ -527,7 +523,18 @@
 //  visualViewport but not always `dvh`/`vh` consistently across versions;
 //  set body's actual pixel height explicitly and keep it in sync)
 // ============================================================
+// Every attempt to actively react to the keyboard (resize the layout,
+// hide the nav, scroll the focused field into view) made things worse
+// on the real device, repeatedly. Switched approach entirely: freeze
+// the layout the instant a field is focused, so the keyboard simply
+// slides in as an overlay on top of whatever's already on screen,
+// with nothing underneath moving or resizing at all. syncViewportHeight
+// still runs normally the rest of the time (needed against Safari's
+// collapsible toolbar hiding the save button, a separately-confirmed
+// real bug from FB2) - it just no-ops while any field is focused.
+let fieldIsFocused = false;
 function syncViewportHeight() {
+  if (fieldIsFocused) return;
   const h = window.visualViewport ? window.visualViewport.height : window.innerHeight;
   document.body.style.height = h + 'px';
 }
@@ -538,31 +545,13 @@ if (window.visualViewport) {
   window.visualViewport.addEventListener('resize', syncViewportHeight);
   window.visualViewport.addEventListener('scroll', syncViewportHeight);
 }
-
-// While a field is focused, hide the bottom tab nav entirely (not
-// needed while typing) so the save/reset bar becomes the true bottom
-// of the layout, sitting flush above the keyboard. Deliberately NOT
-// doing our own scrollIntoView here anymore: it was firing in addition
-// to iOS's own native "scroll the focused input into view" behavior,
-// and the two fighting each other (ours 320ms after focus, native
-// immediate) was a plausible cause of landing in a worse spot than
-// either alone would - trust the native behavior against <main>
-// (still the only overflow-y:auto ancestor) instead of layering our
-// own on top of it.
-let keyboardHideTimer = null;
 document.addEventListener('focusin', (e) => {
-  const t = e.target;
-  if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA') {
-    clearTimeout(keyboardHideTimer);
-    document.body.classList.add('keyboard-open');
-  }
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') fieldIsFocused = true;
 });
 document.addEventListener('focusout', (e) => {
-  const t = e.target;
-  if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA') {
-    // brief delay so tabbing straight to another field doesn't flicker the nav
-    clearTimeout(keyboardHideTimer);
-    keyboardHideTimer = setTimeout(() => { document.body.classList.remove('keyboard-open'); }, 150);
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+    fieldIsFocused = false;
+    syncViewportHeight(); // re-sync once the keyboard is gone, in case the toolbar state changed meanwhile
   }
 });
 
