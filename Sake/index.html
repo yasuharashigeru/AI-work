@@ -673,12 +673,25 @@ function photoUrlFor(it) {
 // Self-heals a broken <img> by minting a fresh blob: URL from the
 // underlying Blob — a stale/revoked object URL can fail to resolve
 // later (e.g. iOS reclaiming memory while the PWA is backgrounded)
-// even though the original data is still perfectly intact.
-function onPhotoImgError(img, itemId) {
+// even though the original data is still perfectly intact. If a
+// freshly-minted URL from the very same stored Blob ALSO fails to
+// load, that's no longer a URL-lifecycle problem — the stored Blob
+// data itself is most likely corrupted, and no amount of re-minting
+// will fix that. Surface it plainly instead of leaving the browser's
+// generic broken-image icon up forever.
+function onPhotoImgError(img, itemId, kind) {
   const it = itemById(itemId);
   if (!it || !it.photo) return;
+  if (img.dataset.healRetried) {
+    const label = esc((it.name || '?').charAt(0));
+    const placeholderClass = kind === 'detail' ? 'detail-photo-placeholder' : 'item-tile-placeholder';
+    const anchor = kind === 'detail' ? document.querySelector('.detail-photo') : undefined;
+    img.outerHTML = `<div class="${placeholderClass}">${label}</div>`;
+    showToast(`「${it.name}」の写真データが壊れているようです。撮り直しをおすすめします`, anchor);
+    return;
+  }
+  img.dataset.healRetried = '1';
   if (it._photoUrl) { URL.revokeObjectURL(it._photoUrl); it._photoUrl = null; }
-  img.onerror = null; // avoid a retry loop if the Blob itself is somehow bad
   img.src = photoUrlFor(it);
 }
 
@@ -797,7 +810,7 @@ function onTileClick(itemId) {
 function itemTilePhotoHTML(it) {
   const url = photoUrlFor(it);
   const ratingHtml = it.rating ? `<span class="item-tile-rating">★${it.rating}</span>` : '';
-  if (url) return `<img src="${url}" alt="" onerror="onPhotoImgError(this, '${it.id}')">${ratingHtml}`;
+  if (url) return `<img src="${url}" alt="" onerror="onPhotoImgError(this, '${it.id}', 'tile')">${ratingHtml}`;
   return `<div class="item-tile-placeholder">${esc((it.name || '?').charAt(0))}</div>${ratingHtml}`;
 }
 function starsHTML(rating) {
@@ -811,7 +824,7 @@ function renderDetailHTML(itemId) {
   if (!it) return `<div class="empty-state">この記録は削除されました。</div>`;
   const g = genreById(it.genreId);
   const url = photoUrlFor(it);
-  const photoHtml = url ? `<img src="${url}" alt="" onerror="onPhotoImgError(this, '${it.id}')">` : `<div class="detail-photo-placeholder">${esc((it.name || '?').charAt(0))}</div>`;
+  const photoHtml = url ? `<img src="${url}" alt="" onerror="onPhotoImgError(this, '${it.id}', 'detail')">` : `<div class="detail-photo-placeholder">${esc((it.name || '?').charAt(0))}</div>`;
   const ratingHtml = it.rating ? `<div class="detail-rating">${starsHTML(it.rating)}</div>` : '';
   const priceHtml = it.price ? `<div class="detail-price">¥${fmt(it.price)}${it.priceType ? `<span class="detail-price-type">${esc(it.priceType)}</span>` : ''}</div>` : '';
   const memoHtml = it.memo ? `<div class="detail-memo">${esc(it.memo)}</div>` : '';
