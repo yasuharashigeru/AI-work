@@ -614,25 +614,42 @@ function getAll(name) {
     req.onerror = () => reject(req.error);
   });
 }
+// put/del/clearStore resolve once the whole transaction has committed,
+// not just once the individual request succeeded - a request's
+// onsuccess can fire before the data is actually durably written,
+// so code awaiting these must be able to trust that a resolved promise
+// really means "safely on disk" (relevant for anything checking for
+// silent write failures, e.g. quota exceeded).
 function put(name, value) {
   return new Promise((resolve, reject) => {
-    const req = storeTx(name, 'readwrite').put(value);
-    req.onsuccess = () => resolve(req.result);
+    const tx = db.transaction(name, 'readwrite');
+    const req = tx.objectStore(name).put(value);
+    let result;
+    req.onsuccess = () => { result = req.result; };
     req.onerror = () => reject(req.error);
+    tx.oncomplete = () => resolve(result);
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error || new Error('transaction aborted'));
   });
 }
 function del(name, key) {
   return new Promise((resolve, reject) => {
-    const req = storeTx(name, 'readwrite').delete(key);
-    req.onsuccess = () => resolve();
+    const tx = db.transaction(name, 'readwrite');
+    const req = tx.objectStore(name).delete(key);
     req.onerror = () => reject(req.error);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error || new Error('transaction aborted'));
   });
 }
 function clearStore(name) {
   return new Promise((resolve, reject) => {
-    const req = storeTx(name, 'readwrite').clear();
-    req.onsuccess = () => resolve();
+    const tx = db.transaction(name, 'readwrite');
+    const req = tx.objectStore(name).clear();
     req.onerror = () => reject(req.error);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error || new Error('transaction aborted'));
   });
 }
 
@@ -1469,6 +1486,12 @@ function cancelCrop() {
 function confirmCrop() {
   const canvas = document.getElementById('cropCanvas');
   canvas.toBlob(blob => {
+    if (!blob) {
+      // leave the crop tool open so the user can retry rather than
+      // silently committing to a missing/broken photo
+      showToast('画像の処理に失敗しました。もう一度お試しください');
+      return;
+    }
     pendingPhotoBlob = blob;
     pendingPhotoChanged = true;
     setPhotoPreview(blob);
@@ -1602,15 +1625,35 @@ function closeSettings() {
   document.getElementById('settingsPanel').style.display = 'none';
 }
 function blobToDataURL(blob) {
-  return new Promise(resolve => {
+  return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(blob);
   });
 }
 async function dataURLToBlob(dataURL) {
   const res = await fetch(dataURL);
   return res.blob();
+}
+// Converts a backup file's photo data URL back into a Blob, but only
+// after confirming it actually decodes as a real image - a malformed
+// or truncated data URL in the backup file would otherwise get written
+// straight into IndexedDB as a "photo" that looks present but never
+// renders. Returns null (no photo) if the data is missing or invalid,
+// rather than importing something silently broken.
+async function validatedPhotoBlob(dataURL) {
+  if (!dataURL) return null;
+  let blob;
+  try { blob = await dataURLToBlob(dataURL); }
+  catch (e) { return null; }
+  return new Promise(resolve => {
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => { URL.revokeObjectURL(url); resolve(blob); };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+    img.src = url;
+  });
 }
 async function exportBackup() {
   const payload = {
@@ -1651,9 +1694,12 @@ async function importBackup(event) {
   if (!ok) return;
 
   const prevGenres = genres, prevItems = items;
-  const newItems = await Promise.all(payload.items.map(async it => ({
-    ...it, photo: it.photo ? await dataURLToBlob(it.photo) : null,
-  })));
+  let droppedPhotoCount = 0;
+  const newItems = await Promise.all(payload.items.map(async it => {
+    const photo = await validatedPhotoBlob(it.photo);
+    if (it.photo && !photo) droppedPhotoCount++;
+    return { ...it, photo };
+  }));
 
   await clearStore('genres');
   await clearStore('items');
@@ -1665,7 +1711,10 @@ async function importBackup(event) {
   closeSettings();
   browseStack = [{ type: 'genres' }];
   renderBrowse();
-  showUndoToast('バックアップを読み込みました', async () => {
+  const importMsg = droppedPhotoCount > 0
+    ? `バックアップを読み込みました（写真データが壊れていた${droppedPhotoCount}件は写真なしで復元）`
+    : 'バックアップを読み込みました';
+  showUndoToast(importMsg, async () => {
     await clearStore('genres');
     await clearStore('items');
     for (const g of prevGenres) await put('genres', g);
