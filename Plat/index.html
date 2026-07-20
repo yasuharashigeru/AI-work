@@ -1,0 +1,1517 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Plat">
+<meta name="theme-color" content="#F38B5C">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<title>Plat</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  img, .item-tile, .photo-picker { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+
+  :root {
+    --accent:      #F38B5C;
+    --accent-mid:  #E96F38;
+    --accent-light:#FDEDE3;
+    --accent-pale: #FFF6F0;
+    --accent-ink:  #8A3A1E;
+    --danger:      #E74C3C;
+    --danger-bg:   #FDEBEA;
+    --text:        #1A1D2E;
+    --text2:       #4B5563;
+    --placeholder: #B7BCC7;
+    --white:       #FFFFFF;
+    --bg:          #E8EBF0;
+    --border:      #C4C9D4;
+    --shadow:      0 1px 4px rgba(0,0,0,0.08);
+  }
+
+  /* Real-viewport flex shell, ported verbatim from Rove/Sake: avoids
+     position:fixed bottom bars getting hidden behind iOS Safari's own
+     collapsible toolbar, and freezes layout entirely while a field is
+     focused so the keyboard slides in as an overlay instead of the page
+     reflowing under it (see syncViewportHeight below). This combination
+     took 6 rounds of real-device iteration in the sibling app; do not
+     "simplify" it without re-testing on a real iPhone. */
+  html { height: 100%; width: 100%; position: fixed; overflow: hidden; }
+  body {
+    font-family: "メイリオ", Meiryo, sans-serif;
+    background: var(--white);
+    color: var(--text);
+    position: fixed; top: 0; left: 0; width: 100%;
+    height: 100vh;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  button, input, textarea { font-family: inherit; }
+
+  /* ---- Header ---- */
+  header {
+    background: var(--white);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 16px;
+    flex-shrink: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+  .header-title { font-size: 16px; font-weight: bold; flex: 1; text-align: center; }
+  .header-search-input {
+    flex: 1; border: none; border-bottom: 1px solid var(--border); outline: none;
+    font-size: 15px; padding: 4px 2px; background: none; color: var(--text);
+  }
+  .header-back, .header-action {
+    background: none; border: none; color: var(--text2); cursor: pointer;
+    width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .header-back svg, .header-action-icon { display: block; }
+
+  main { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; -webkit-overflow-scrolling: touch; }
+
+  /* ---- Bottom Nav ---- */
+  nav {
+    flex-shrink: 0;
+    background: var(--white);
+    border-top: 1px solid var(--border);
+    display: flex;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  nav button {
+    flex: 1;
+    background: none;
+    border: none;
+    color: var(--text2);
+    padding: 10px 4px 8px;
+    font-size: 10px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+  }
+  nav button.active { color: var(--accent-ink); }
+  nav button svg { display: block; }
+
+  /* ---- Tab Panels ---- */
+  .tab { display: none; }
+  .tab.active { display: block; }
+
+  /* ---- Form ---- */
+  .form { padding: 4px 16px 0; display: flex; flex-direction: column; }
+  .form-group {
+    display: flex; flex-direction: column; gap: 4px;
+    padding: 10px 0; border-bottom: 1px solid var(--border);
+  }
+  .form-group label { font-size: 11px; color: var(--text2); font-weight: bold; }
+
+  .photo-row { display: flex; align-items: center; gap: 12px; }
+  .photo-picker {
+    width: 100%; aspect-ratio: 1/1; max-width: 220px; border: 1px dashed var(--border); border-radius: 6px;
+    display: flex; align-items: center; justify-content: center; cursor: pointer;
+    overflow: hidden; background: var(--white); color: var(--text2); font-size: 13px; text-align: center;
+    flex-shrink: 0;
+  }
+  .photo-picker img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .photo-hint { font-size: 11px; color: var(--text2); margin-top: 6px; }
+
+  /* ---- Memo block editor ---- */
+  .memo-editor { position: relative; min-height: 100px; padding: 6px 0; }
+  .memo-hint {
+    position: absolute; top: 6px; left: 0; right: 0; color: var(--placeholder);
+    font-size: 13px; line-height: 1.9; pointer-events: none; white-space: pre-line;
+  }
+  .memo-block { display: flex; align-items: flex-start; gap: 6px; }
+  .memo-block-prefix {
+    width: 20px; flex-shrink: 0; text-align: center; font-size: 15px; color: var(--text2);
+    line-height: 1.7; padding-top: 3px; cursor: default;
+  }
+  .memo-block-prefix.tappable { cursor: pointer; }
+  .memo-block-input {
+    flex: 1; border: none; outline: none; background: none; font-size: 16px;
+    color: var(--text); padding: 3px 0; font-family: inherit; min-width: 0;
+  }
+  /* Format popup: hidden by default, only appears near a long-pressed
+     block (see showFormatPopup) — no persistent toolbar chrome. Styled
+     like the toast's dark bubble for a consistent "floating, contextual"
+     look across the app. */
+  .format-popup-overlay { position: fixed; inset: 0; z-index: 559; background: transparent; display: none; }
+  .format-popup-overlay.show { display: block; }
+  .format-popup {
+    position: fixed; z-index: 560; display: none;
+    background: var(--text); border-radius: 8px; overflow: hidden;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+  }
+  .format-popup.show { display: flex; }
+  .format-popup button {
+    border: none; background: none; color: var(--white); font-size: 13px;
+    padding: 11px 14px; cursor: pointer; border-right: 1px solid rgba(255,255,255,0.18);
+    white-space: nowrap;
+  }
+  .format-popup button:last-child { border-right: none; }
+  .format-popup button.active { color: var(--accent); font-weight: bold; }
+
+  /* ---- Save/reset bar: one flat row divided by a single line, no
+     boxes/fills — 保存 differs from リセット only by weight, not color ---- */
+  .form-actions {
+    display: none; flex-shrink: 0;
+    background: var(--white); border-top: 1px solid var(--border);
+  }
+  .form-actions.show { display: flex; }
+  .btn-save, .btn-reset {
+    flex: 1; background: none; border: none; padding: 14px; font-size: 15px; cursor: pointer; color: var(--text);
+  }
+  .btn-reset { border-right: 1px solid var(--border); color: var(--text2); font-size: 14px; }
+  .btn-save { font-weight: bold; }
+
+  /* ---- Browse: item grid ---- */
+  .item-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; padding: 2px; }
+  .item-tile { cursor: pointer; min-width: 0; }
+  .item-tile-photo { aspect-ratio: 1 / 1; background: var(--accent-pale); overflow: hidden; position: relative; }
+  .item-tile-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .item-tile-placeholder { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: var(--accent-ink); opacity: 0.35; }
+
+  /* ---- Browse: detail ---- */
+  .detail-photo { aspect-ratio: 1 / 1; width: 100%; background: var(--accent-pale); }
+  .detail-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .detail-photo-placeholder { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: var(--accent-ink); opacity: 0.35; }
+  .detail-body { padding: 18px 16px; }
+  .detail-memo { margin-bottom: 16px; }
+  .detail-memo-block { font-size: 14px; line-height: 1.8; color: var(--text); white-space: pre-wrap; word-break: break-word; padding: 1px 0; }
+  .detail-memo-heading { font-size: 17px; font-weight: bold; margin: 10px 0 2px; }
+  .detail-memo-bullet, .detail-memo-checklist { padding-left: 20px; position: relative; }
+  .detail-memo-bullet::before { content: '・'; position: absolute; left: 4px; }
+  .detail-memo-checklist { cursor: pointer; }
+  .detail-memo-checklist .chk-mark { position: absolute; left: 0; }
+  .detail-memo-checklist.checked .chk-text { color: var(--text2); text-decoration: line-through; }
+  mark.hl { background: var(--accent-light); color: var(--accent-ink); border-radius: 2px; padding: 0 1px; }
+  .detail-meta { font-size: 11px; color: var(--text2); margin-bottom: 14px; }
+  .detail-actions { display: flex; border-top: 1px solid var(--border); }
+  .btn-edit, .btn-share, .btn-delete {
+    flex: 1; background: none; border: none; border-right: 1px solid var(--border);
+    padding: 13px; font-weight: bold; font-size: 14px; cursor: pointer; color: var(--text);
+  }
+  .btn-delete { border-right: none; color: var(--danger); }
+
+  .empty-state { padding: 70px 20px; text-align: center; color: var(--text2); font-size: 13px; line-height: 1.8; }
+
+  /* ---- Selection Sheet (settings) ---- */
+  .sel-sheet-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.25); z-index: 520; }
+  .sel-sheet-panel {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: var(--white); z-index: 521;
+    border-top: 1px solid var(--border); border-radius: 14px 14px 0 0;
+    max-height: 75vh; overflow-y: auto;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .sel-sheet-title-bar {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 14px 16px; font-size: 14px; font-weight: bold; color: var(--text);
+    border-bottom: 1px solid var(--border); background: var(--bg);
+    border-radius: 14px 14px 0 0; position: sticky; top: 0;
+  }
+  .sel-row { padding: 14px 16px; border-bottom: 1px solid var(--border); font-size: 15px; cursor: pointer; }
+  .sel-row:last-child { border-bottom: none; }
+  .sel-row-danger { color: var(--danger); }
+  .settings-body { display: flex; flex-direction: column; }
+
+  /* ---- Confirm / action modal ---- */
+  .item-action-modal {
+    position: fixed; inset: 0; z-index: 620;
+    display: none; align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.35);
+  }
+  .item-action-modal.show { display: flex; }
+  .item-action-card {
+    background: var(--white); border-radius: 10px;
+    padding: 22px 0 0; margin: 0 24px;
+    width: calc(100% - 48px); max-width: 360px;
+    overflow: hidden;
+  }
+  .item-action-card-title { font-size: 14px; color: var(--text); text-align: center; margin: 0 20px 18px; line-height: 1.6; }
+  .item-action-btns { display: flex; border-top: 1px solid var(--border); }
+  .item-action-btn { flex: 1; padding: 14px 4px; border: none; border-right: 1px solid var(--border); background: none; font-size: 13px; font-weight: bold; cursor: pointer; }
+  .item-action-btn:last-child { border-right: none; }
+  .ia-cancel { color: var(--text2); }
+  .ia-neutral { color: var(--accent-ink); }
+  .ia-ok { color: var(--danger); }
+
+  /* ---- Toast ---- */
+  .toast {
+    position: fixed; bottom: calc(140px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%);
+    background: var(--text); color: var(--white); padding: 10px 18px; border-radius: 22px;
+    font-size: 13px; opacity: 0; transition: opacity 0.3s; z-index: 400; pointer-events: none;
+    white-space: nowrap; display: flex; align-items: center; gap: 12px;
+  }
+  .toast.show { opacity: 1; pointer-events: auto; }
+  .toast-undo { background: none; border: none; color: #FFC9A8; font-weight: bold; font-size: 13px; text-decoration: underline; pointer-events: auto; cursor: pointer; padding: 0; }
+
+  /* ---- Crop modal ---- */
+  .crop-overlay { position: fixed; inset: 0; background: #000; z-index: 700; display: none; flex-direction: column; }
+  .crop-overlay.show { display: flex; }
+  .crop-header { display: flex; justify-content: space-between; align-items: center; padding: calc(14px + env(safe-area-inset-top)) 16px 14px; }
+  .crop-header button { background: none; border: none; color: #fff; font-size: 15px; cursor: pointer; }
+  .crop-header span { color: #fff; font-size: 14px; font-weight: bold; }
+  .crop-stage { flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; touch-action: none; }
+  #cropCanvas { width: min(88vw, 60vh); height: min(88vw, 60vh); touch-action: none; border-radius: 4px; }
+  .crop-controls { padding: 20px 28px calc(28px + env(safe-area-inset-bottom)); }
+  .crop-controls input[type=range] { width: 100%; }
+</style>
+</head>
+<body>
+
+<header>
+  <button class="header-back" id="headerBack" style="visibility:hidden" aria-label="戻る">
+    <svg id="iconBack" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+    <svg id="iconSearch" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    <svg id="iconClose" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+  </button>
+  <div class="header-title" id="headerTitle">入力</div>
+  <input type="text" class="header-search-input" id="searchInput" placeholder="メモを検索" style="display:none" oninput="onSearchInput()">
+  <button class="header-action" id="headerAction" style="visibility:hidden" onclick="openSettings()" aria-label="メニュー">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+  </button>
+</header>
+
+<main>
+  <div id="tab-input" class="tab active">
+    <div class="form">
+      <div class="form-group">
+        <label>写真</label>
+        <div class="photo-row">
+          <div class="photo-picker" id="photoPicker" onclick="onPhotoPickerClick()">
+            <img id="photoPreview" style="display:none">
+            <span id="photoPlaceholder">＋ 写真を選ぶ</span>
+          </div>
+        </div>
+        <span class="photo-hint" id="photoHint" style="display:none">タップして削除・トリム調整</span>
+        <input type="file" id="photoInput" accept="image/*" style="display:none" onchange="onPhotoSelected(event)">
+      </div>
+
+      <div class="form-group" style="border-bottom:none;">
+        <label>メモ</label>
+        <div class="memo-editor" id="memoEditor">
+          <div class="memo-hint" id="memoHint">店名・料理名<br>味や食感<br>入っていそうな材料<br>再現するときのポイント</div>
+          <div id="memoBlocks"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="tab-browse" class="tab">
+    <div id="browseRoot"></div>
+  </div>
+</main>
+
+<div class="format-popup-overlay" id="formatPopupOverlay" onclick="hideFormatPopup()"></div>
+<div class="format-popup" id="formatPopup"></div>
+
+<div class="form-actions" id="formActions">
+  <button type="button" class="btn-reset" onclick="onResetClick()">リセット</button>
+  <button type="button" class="btn-save" id="saveBtn" onclick="onSaveClick()">保存</button>
+</div>
+
+<nav>
+  <button id="nav-input" onclick="switchTab('input')" class="active">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>
+    </svg>
+    入力
+  </button>
+  <button id="nav-browse" onclick="switchTab('browse')">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+      <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
+    </svg>
+    閲覧
+  </button>
+</nav>
+
+<!-- Photo action sheet -->
+<div id="photoActionOverlay" class="sel-sheet-overlay" style="display:none" onclick="closePhotoActionSheet()"></div>
+<div id="photoActionPanel" class="sel-sheet-panel" style="display:none">
+  <div class="sel-sheet-title-bar"><span>写真</span></div>
+  <div class="sel-row" onclick="recropExistingPhoto()">トリム調整</div>
+  <div class="sel-row" onclick="triggerPhotoPick()">新しい写真を選ぶ</div>
+  <div class="sel-row sel-row-danger" onclick="deleteExistingPhoto()">削除</div>
+</div>
+
+<!-- Settings sheet -->
+<div id="settingsOverlay" class="sel-sheet-overlay" style="display:none" onclick="closeSettings()"></div>
+<div id="settingsPanel" class="sel-sheet-panel" style="display:none">
+  <div class="sel-sheet-title-bar"><span>設定</span></div>
+  <div class="settings-body">
+    <div class="sel-row" onclick="exportBackup()">バックアップを書き出す</div>
+    <label class="sel-row" for="importFileInput" style="display:block">バックアップを読み込む</label>
+    <input type="file" id="importFileInput" accept="application/json" style="display:none" onchange="onImportFileChosen(event)">
+  </div>
+</div>
+
+<!-- Confirm modal (2 buttons) -->
+<div id="confirmModal" class="item-action-modal">
+  <div class="item-action-card">
+    <div class="item-action-card-title" id="confirmTitle"></div>
+    <div class="item-action-btns">
+      <button type="button" class="item-action-btn ia-cancel" onclick="closeConfirm(false)">キャンセル</button>
+      <button type="button" class="item-action-btn ia-ok" id="confirmOkBtn" onclick="closeConfirm(true)">削除</button>
+    </div>
+  </div>
+</div>
+
+<!-- Import mode modal (3 buttons: cancel / append / replace) -->
+<div id="importModeModal" class="item-action-modal">
+  <div class="item-action-card">
+    <div class="item-action-card-title">読み込んだデータをどうしますか？<br>（現在のデータへの追加、または全置換）</div>
+    <div class="item-action-btns">
+      <button type="button" class="item-action-btn ia-cancel" onclick="closeImportMode(null)">キャンセル</button>
+      <button type="button" class="item-action-btn ia-neutral" onclick="closeImportMode('append')">追加</button>
+      <button type="button" class="item-action-btn ia-ok" onclick="closeImportMode('replace')">置き換え</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast" class="toast" onclick="dismissToast()">
+  <span id="toastMsg"></span>
+  <button type="button" id="toastUndoBtn" class="toast-undo" style="display:none">元に戻す</button>
+</div>
+
+<!-- Crop modal -->
+<div id="cropOverlay" class="crop-overlay">
+  <div class="crop-header">
+    <button type="button" onclick="cancelCrop()">キャンセル</button>
+    <span>写真を調整</span>
+    <button type="button" onclick="confirmCrop()">完了</button>
+  </div>
+  <div class="crop-stage">
+    <canvas id="cropCanvas"></canvas>
+  </div>
+  <div class="crop-controls">
+    <input type="range" id="cropZoom" min="1" max="3" step="0.01" value="1" oninput="onCropZoomChange()">
+  </div>
+</div>
+
+<script>
+// ============================================================
+//  Real viewport height / keyboard-freeze handling
+//  Ported verbatim from the sibling app (Sake/Rove) — see that app's
+//  CLAUDE.md for the 6-round real-device debugging history behind this.
+//  Every reactive approach (resize, hide nav, scrollIntoView) made things
+//  worse on real iOS; the winning approach is to freeze body's height
+//  entirely while a field is focused so the keyboard just overlays
+//  whatever's already on screen instead of triggering a reflow.
+// ============================================================
+let fieldIsFocused = false;
+function syncViewportHeight() {
+  if (fieldIsFocused) return;
+  const h = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+  document.body.style.height = h + 'px';
+}
+syncViewportHeight();
+window.addEventListener('resize', syncViewportHeight);
+window.addEventListener('orientationchange', syncViewportHeight);
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', syncViewportHeight);
+  window.visualViewport.addEventListener('scroll', syncViewportHeight);
+}
+let unfreezeTimer = null;
+// Unlike the sibling app's short static fields (which never grow past the
+// frozen height), Plat's memo is a block editor that can grow to many
+// lines as the user types — once it does, <main>'s own flex-computed
+// height (based on body's FROZEN, pre-keyboard-height) stays taller than
+// the keyboard actually leaves visible, so <main> never overflows/scrolls
+// at all and later lines end up in an invisible-but-unscrollable dead
+// zone behind the keyboard (real bug hit on first real-device check,
+// 2026-07-20). Fix: once the keyboard has finished sliding in, explicitly
+// shrink <main> itself (not body) to the ACTUAL visible height
+// (visualViewport.height minus the header), so overflow-y:auto on <main>
+// has real room to work with. This is a single one-time measurement at
+// settle time, not a continuous per-frame resync — deliberately avoiding
+// the exact "reactively fight the keyboard on every event" pattern that
+// caused the sibling app's original multi-round debugging saga.
+let mainHeightSettleTimer = null;
+function freezeMainHeightForKeyboard() {
+  if (!fieldIsFocused) return; // blurred again before this fired
+  const main = document.querySelector('main');
+  const header = document.querySelector('header');
+  const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+  const h = Math.max(120, vh - header.offsetHeight);
+  // `main{flex:1}` expands to flex-basis:0%, which overrides a plain
+  // `height` for sizing along a column flex container's main axis — so
+  // `height` alone here would be silently ineffective. `flex:none` makes
+  // the explicit height actually take effect.
+  main.style.flex = 'none';
+  main.style.height = h + 'px';
+}
+document.addEventListener('focusin', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+    clearTimeout(unfreezeTimer);
+    fieldIsFocused = true;
+    clearTimeout(mainHeightSettleTimer);
+    mainHeightSettleTimer = setTimeout(freezeMainHeightForKeyboard, 320); // let the keyboard's slide-in animation finish before measuring, same delay the sibling app settled on for the equivalent wait
+  }
+});
+document.addEventListener('focusout', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+    clearTimeout(unfreezeTimer);
+    clearTimeout(mainHeightSettleTimer);
+    unfreezeTimer = setTimeout(() => {
+      fieldIsFocused = false;
+      const main = document.querySelector('main');
+      main.style.flex = ''; main.style.height = ''; // hand sizing back to the normal flex:1 layout
+      syncViewportHeight();
+    }, 150);
+  }
+});
+
+// Filter out errors that don't originate from this page's own inline
+// script — this app is a single inline <script>, so a genuine error in
+// our own code always reports e.filename as this exact page's URL.
+// Errors from browser extensions / content blockers running in the page
+// context (ad blockers, privacy tools, even browser-vendor-injected
+// bridges — e.g. a real report hit "ReferenceError: Can't find variable:
+// __firefox__", a global this app never references) report a different
+// (or opaque/blank, i.e. "Script error.") filename, and are noise we
+// can't fix or explain — showing them just alarms the user over nothing.
+window.addEventListener('error', (e) => {
+  if (e.message === 'Script error.') return;
+  if (e.filename && e.filename !== location.href) return;
+  showToast('エラー: ' + (e.message || '不明なエラー'));
+});
+window.addEventListener('unhandledrejection', (e) => {
+  const msg = (e.reason && e.reason.message) ? e.reason.message : String(e.reason);
+  showToast('エラー: ' + msg);
+});
+
+// ============================================================
+//  IndexedDB — DB name is intentionally distinct from the sibling
+//  app's "sakelog" (IndexedDB is scoped per-origin, not per-path, so a
+//  shared name under the same GitHub Pages origin would read/write the
+//  SAME database and corrupt that app's real data).
+// ============================================================
+const DB_NAME = 'platlog';
+const DB_VERSION = 1;
+let db;
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = (e) => {
+      const d = e.target.result;
+      if (!d.objectStoreNames.contains('items')) d.createObjectStore('items', { keyPath: 'id' });
+    };
+    req.onsuccess = (e) => { db = e.target.result; resolve(db); };
+    req.onerror = (e) => reject(e.target.error);
+  });
+}
+function storeTx(name, mode) { return db.transaction(name, mode).objectStore(name); }
+function getAll(name) {
+  return new Promise((resolve, reject) => {
+    const req = storeTx(name, 'readonly').getAll();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+function put(name, value) {
+  return new Promise((resolve, reject) => {
+    const req = storeTx(name, 'readwrite').put(value);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+function del(name, key) {
+  return new Promise((resolve, reject) => {
+    const req = storeTx(name, 'readwrite').delete(key);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+function clearStore(name) {
+  return new Promise((resolve, reject) => {
+    const req = storeTx(name, 'readwrite').clear();
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+// ============================================================
+//  State
+// ============================================================
+let items = [];
+let currentTab = 'input';
+let browseStack = [{ type: 'grid' }];
+let searchMode = false;
+let searchQuery = '';
+
+// Input-tab draft/edit state. currentItemId is null for a brand-new,
+// not-yet-persisted entry; once it has any content it's assigned an id
+// and autosaved from then on (see scheduleAutosave/doAutosaveNow).
+let currentItemId = null;
+let currentCreatedAt = null;
+let currentBlocks = [];
+let currentPhotoBlob = null;
+let currentPhotoOrigBlob = null;
+let currentCrop = null;
+let focusedBlockId = null;
+let saveDebounceTimer = null;
+// Set only while editing an existing item (startEdit): a snapshot to
+// restore on an explicit リセット, and the browse stack to return to on 保存.
+let editSnapshot = null;
+let editingReturnStack = null;
+
+// ============================================================
+//  Helpers
+// ============================================================
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+function pad(n) { return String(n).padStart(2, '0'); }
+function fmtDate(ts) {
+  const d = new Date(ts);
+  return `${d.getFullYear()}/${pad(d.getMonth()+1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function itemById(id) { return items.find(i => i.id === id); }
+function blockById(id) { return currentBlocks.find(b => b.id === id); }
+// crypto.randomUUID() only exists in a secure context (HTTPS or localhost).
+// A plain LAN IP over http:// (e.g. real-device testing before this app is
+// deployed) is NOT a secure context, so crypto.randomUUID is undefined
+// there and throws — this silently broke block/item creation entirely
+// (real bug hit during phone testing 2026-07-20). Fall back to a manual
+// RFC4122-ish v4 id via Math.random() when it's unavailable; these ids
+// only need to be unique within this app, not cryptographically random.
+function genId() {
+  if (window.crypto && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = Math.random() * 16 | 0;
+    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+  });
+}
+function newBlockId() { return genId(); }
+function newBlock(overrides) {
+  return Object.assign({ id: newBlockId(), type: 'paragraph', text: '', checked: false }, overrides || {});
+}
+function deepCloneBlocks(blocks) { return blocks.map(b => Object.assign({}, b)); }
+function isMemoEmpty(blocks) { return !blocks || blocks.every(b => !b.text || !b.text.trim()); }
+function computeSearchText(blocks) { return blocks.map(b => b.text).join('\n'); }
+function blocksToShareText(blocks) {
+  return blocks.filter(b => b.text && b.text.trim() !== '').map(b => {
+    if (b.type === 'heading') return `【${b.text}】`;
+    if (b.type === 'bullet') return `・${b.text}`;
+    if (b.type === 'checklist') return `${b.checked ? '☑' : '☐'} ${b.text}`;
+    return b.text;
+  }).join('\n');
+}
+function photoUrlFor(it) {
+  if (!it.photo) return null;
+  if (!it._photoUrl) it._photoUrl = URL.createObjectURL(it.photo);
+  return it._photoUrl;
+}
+// Self-heals a broken <img> by re-minting a blob: URL from the stored
+// Blob (never lost by revoking a URL that pointed to it). If a fresh
+// mint also fails to load, the stored Blob data itself is the problem —
+// same pattern/rationale as the sibling app's onPhotoImgError.
+function onPhotoImgError(img, itemId, kind) {
+  const it = itemById(itemId);
+  if (!it || !it.photo) return;
+  if (img.dataset.healRetried) {
+    const placeholderClass = kind === 'detail' ? 'detail-photo-placeholder' : 'item-tile-placeholder';
+    img.outerHTML = `<div class="${placeholderClass}">${placeholderIconSVG()}</div>`;
+    showToast('写真データが壊れているようです。撮り直しをおすすめします');
+    return;
+  }
+  img.dataset.healRetried = '1';
+  if (it._photoUrl) { URL.revokeObjectURL(it._photoUrl); it._photoUrl = null; }
+  img.src = photoUrlFor(it);
+}
+function placeholderIconSVG() {
+  return `<svg width="30%" height="30%" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/></svg>`;
+}
+function highlightPlain(rawText, query) {
+  const q = (query || '').trim();
+  if (!q) return esc(rawText);
+  const lower = rawText.toLowerCase(), qLower = q.toLowerCase();
+  let out = '', i = 0;
+  while (i < rawText.length) {
+    const idx = lower.indexOf(qLower, i);
+    if (idx === -1) { out += esc(rawText.slice(i)); break; }
+    out += esc(rawText.slice(i, idx));
+    out += `<mark class="hl">${esc(rawText.slice(idx, idx + q.length))}</mark>`;
+    i = idx + q.length;
+  }
+  return out;
+}
+
+// ============================================================
+//  Tabs / header
+// ============================================================
+async function switchTab(name) {
+  if (currentTab === 'input' && name !== 'input') await leavingInputTab();
+  dismissToast();
+  hideFormatPopup();
+  currentTab = name;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  document.getElementById('nav-' + name).classList.add('active');
+  document.getElementById('formActions').classList.toggle('show', name === 'input');
+  if (name === 'browse') renderBrowse();
+  updateHeader();
+}
+function updateHeader() {
+  const backBtn = document.getElementById('headerBack');
+  const iconBack = document.getElementById('iconBack'), iconSearch = document.getElementById('iconSearch'), iconClose = document.getElementById('iconClose');
+  const titleEl = document.getElementById('headerTitle'), searchEl = document.getElementById('searchInput');
+  const actionBtn = document.getElementById('headerAction');
+  iconBack.style.display = iconSearch.style.display = iconClose.style.display = 'none';
+  let title = '';
+  let actionVisible = false;
+  if (currentTab === 'input') {
+    backBtn.style.visibility = 'hidden';
+    titleEl.style.display = 'block'; searchEl.style.display = 'none';
+    title = editSnapshot ? '編集' : '入力';
+  } else {
+    const depth = browseStack.length;
+    backBtn.style.visibility = 'visible';
+    if (depth === 1) {
+      if (searchMode) {
+        iconClose.style.display = 'block';
+        backBtn.onclick = closeSearch;
+        titleEl.style.display = 'none'; searchEl.style.display = 'block';
+      } else {
+        iconSearch.style.display = 'block';
+        backBtn.onclick = openSearch;
+        titleEl.style.display = 'block'; searchEl.style.display = 'none';
+        title = '閲覧';
+      }
+      actionVisible = true;
+    } else {
+      iconBack.style.display = 'block';
+      backBtn.onclick = popBrowse;
+      titleEl.style.display = 'block'; searchEl.style.display = 'none';
+      title = '';
+    }
+  }
+  titleEl.textContent = title;
+  actionBtn.style.visibility = actionVisible ? 'visible' : 'hidden';
+}
+
+// ============================================================
+//  Browse navigation
+// ============================================================
+function pushBrowse(screen) {
+  dismissToast();
+  browseStack.push(screen);
+  history.pushState({ browseDepth: browseStack.length }, '');
+  renderBrowse();
+}
+function popBrowse() {
+  if (browseStack.length > 1) { dismissToast(); browseStack.pop(); renderBrowse(); }
+}
+window.addEventListener('popstate', () => {
+  if (currentTab === 'browse' && browseStack.length > 1) { dismissToast(); browseStack.pop(); renderBrowse(); }
+});
+
+function renderBrowse() {
+  const top = browseStack[browseStack.length - 1];
+  const root = document.getElementById('browseRoot');
+  if (top.type === 'detail') root.innerHTML = renderDetailHTML(top.itemId, top.query);
+  else root.innerHTML = renderGridHTML();
+  updateHeader();
+}
+
+function visibleItemsSorted() {
+  const list = searchMode ? items.filter(it => matchesQuery(it, searchQuery)) : items.slice();
+  return list.slice().sort((a, b) => b.createdAt - a.createdAt);
+}
+function matchesQuery(it, q) {
+  const query = (q || '').trim().toLowerCase();
+  if (!query) return true;
+  return (it.memoText || '').toLowerCase().includes(query);
+}
+function renderGridHTML() {
+  const list = visibleItemsSorted();
+  if (list.length === 0) {
+    return `<div class="empty-state">${searchMode && searchQuery.trim() ? '見つかりませんでした' : 'まだ記録がありません。<br>「入力」タブから追加できます。'}</div>`;
+  }
+  const html = list.map(it => `
+    <div class="item-tile" onclick='onTileClick("${it.id}")'
+      onpointerdown='onTileLongPressStart("${it.id}")' onpointerup='onTileLongPressEnd()'
+      onpointerleave='onTileLongPressEnd()' onpointercancel='onTileLongPressEnd()'>
+      <div class="item-tile-photo">${tilePhotoHTML(it)}</div>
+    </div>`).join('');
+  return `<div class="item-grid">${html}</div>`;
+}
+function tilePhotoHTML(it) {
+  const url = photoUrlFor(it);
+  if (url) return `<img src="${url}" alt="" loading="lazy" decoding="async" onerror="onPhotoImgError(this, '${it.id}', 'tile')">`;
+  return `<div class="item-tile-placeholder">${placeholderIconSVG()}</div>`;
+}
+let tileLongPressTimer = null, tileLongPressFired = false;
+function onTileLongPressStart(itemId) {
+  tileLongPressFired = false;
+  clearTimeout(tileLongPressTimer);
+  tileLongPressTimer = setTimeout(() => { tileLongPressFired = true; confirmDeleteItemFromGrid(itemId); }, 550);
+}
+function onTileLongPressEnd() { clearTimeout(tileLongPressTimer); }
+function onTileClick(itemId) {
+  if (tileLongPressFired) { tileLongPressFired = false; return; }
+  pushBrowse({ type: 'detail', itemId, query: searchMode ? searchQuery : null });
+}
+
+function renderDetailHTML(itemId, query) {
+  const it = itemById(itemId);
+  if (!it) return `<div class="empty-state">この記録は削除されました。</div>`;
+  const url = photoUrlFor(it);
+  const photoHtml = url ? `<img src="${url}" alt="" onerror="onPhotoImgError(this, '${it.id}', 'detail')">` : `<div class="detail-photo-placeholder">${placeholderIconSVG()}</div>`;
+  const memoHtml = (it.blocks || []).filter(b => b.text && b.text.trim() !== '').map(b => detailBlockHTML(it.id, b, query)).join('');
+  const metaParts = [`作成: ${fmtDate(it.createdAt)}`];
+  if (it.updatedAt && it.updatedAt !== it.createdAt) metaParts.push(`更新: ${fmtDate(it.updatedAt)}`);
+  return `
+    <div class="detail-photo">${photoHtml}</div>
+    <div class="detail-body">
+      <div class="detail-memo">${memoHtml || '<div class="detail-memo-block" style="color:var(--text2)">（メモはありません）</div>'}</div>
+      <div class="detail-meta">${esc(metaParts.join(' ・ '))}</div>
+      <div class="detail-actions">
+        <button type="button" class="btn-edit" onclick="startEdit('${it.id}')">編集</button>
+        <button type="button" class="btn-share" onclick="shareItem('${it.id}')">共有</button>
+        <button type="button" class="btn-delete" onclick="confirmDeleteItem('${it.id}')">削除</button>
+      </div>
+    </div>`;
+}
+function detailBlockHTML(itemId, b, query) {
+  const text = highlightPlain(b.text, query);
+  if (b.type === 'heading') return `<div class="detail-memo-block detail-memo-heading">${text}</div>`;
+  if (b.type === 'bullet') return `<div class="detail-memo-block detail-memo-bullet">${text}</div>`;
+  if (b.type === 'checklist') {
+    return `<div class="detail-memo-block detail-memo-checklist${b.checked ? ' checked' : ''}" onclick="toggleDetailChecklist('${itemId}','${b.id}')">
+      <span class="chk-mark">${b.checked ? '☑' : '☐'}</span><span class="chk-text">${text}</span>
+    </div>`;
+  }
+  return `<div class="detail-memo-block">${text}</div>`;
+}
+async function toggleDetailChecklist(itemId, blockId) {
+  const it = itemById(itemId);
+  if (!it) return;
+  const b = (it.blocks || []).find(x => x.id === blockId);
+  if (!b) return;
+  b.checked = !b.checked;
+  it.updatedAt = Date.now();
+  await put('items', it);
+  renderBrowse();
+}
+
+// ============================================================
+//  Search
+// ============================================================
+function openSearch() {
+  searchMode = true;
+  updateHeader();
+  const el = document.getElementById('searchInput');
+  el.value = searchQuery;
+  el.focus();
+  renderBrowse();
+}
+function closeSearch() {
+  searchMode = false;
+  searchQuery = '';
+  document.getElementById('searchInput').value = '';
+  updateHeader();
+  renderBrowse();
+}
+function onSearchInput() {
+  searchQuery = document.getElementById('searchInput').value;
+  renderGridOnlyIfTop();
+}
+function renderGridOnlyIfTop() {
+  if (browseStack.length === 1) document.getElementById('browseRoot').innerHTML = renderGridHTML();
+}
+
+// ============================================================
+//  Memo block editor
+// ============================================================
+function renderEditor() {
+  document.getElementById('memoHint').style.display = isMemoEmpty(currentBlocks) ? 'block' : 'none';
+  const container = document.getElementById('memoBlocks');
+  container.innerHTML = currentBlocks.map(blockRowHTML).join('');
+}
+function blockRowHTML(b) {
+  const style = b.type === 'heading' ? 'font-size:18px;font-weight:bold;' : '';
+  // Only bullet/checklist reserve a marker column (hanging-indent style).
+  // paragraph/heading render with NO prefix at all, so their text sits
+  // flush at the block's left edge instead of being indented to match
+  // an empty placeholder marker.
+  let prefix = '';
+  if (b.type === 'bullet') prefix = `<span class="memo-block-prefix">・</span>`;
+  else if (b.type === 'checklist') prefix = `<span class="memo-block-prefix tappable" onclick="toggleBlockChecked('${b.id}')">${b.checked ? '☑' : '☐'}</span>`;
+  return `<div class="memo-block" data-id="${b.id}">
+    ${prefix}
+    <input type="text" class="memo-block-input" id="blockInput-${b.id}" data-id="${b.id}" style="${style}"
+      value="${esc(b.text)}" autocomplete="off"
+      oninput="onBlockInput(this)" onkeydown="onBlockKeydown(event,'${b.id}')"
+      onfocus="focusedBlockId='${b.id}'"
+      onpointerdown="onBlockPointerDown(event,'${b.id}')" onpointermove="onBlockPointerMove(event)"
+      onpointerup="onBlockPointerUp()" onpointercancel="onBlockPointerUp()">
+  </div>`;
+}
+function focusBlock(id, atStart) {
+  const el = document.getElementById('blockInput-' + id);
+  if (!el) return;
+  el.focus();
+  const pos = atStart ? 0 : el.value.length;
+  try { el.setSelectionRange(pos, pos); } catch (e) {}
+  scrollFocusedBlockIntoView(el);
+}
+// iOS's native "scroll the focused field into view" only reliably fires
+// for a real user-gesture tap — it does NOT reliably fire for focus()
+// called programmatically from JS (e.g. after Enter creates a new block
+// below the current scroll position while the keyboard is already open),
+// so newly-created lines could end up hidden behind the keyboard with no
+// scroll adjustment at all. This is scoped to ONLY the programmatic-focus
+// path (focusBlock, called from Enter/Backspace/format-toggle — never
+// from a real tap, which just focuses natively without going through this
+// function), specifically to avoid re-fighting native scroll-into-view on
+// genuine taps — that exact conflict is what forced the sibling app
+// (Sake/Rove) to rip out an equivalent explicit scrollIntoView entirely
+// (see its CLAUDE.md keyboard-layout saga). Manual visualViewport-based
+// math is used instead of el.scrollIntoView() because body's height is
+// deliberately frozen while a field is focused (see syncViewportHeight),
+// so <main>'s own layout box doesn't shrink for the keyboard the way
+// scrollIntoView's visibility check assumes.
+function scrollFocusedBlockIntoView(el) {
+  requestAnimationFrame(() => {
+    const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+    const main = document.querySelector('main');
+    const rect = el.getBoundingClientRect();
+    const MARGIN = 16;
+    if (rect.bottom > vh - MARGIN) main.scrollTop += (rect.bottom - vh + MARGIN);
+    else if (rect.top < MARGIN) main.scrollTop -= (MARGIN - rect.top);
+  });
+}
+function onBlockInput(el) {
+  const b = blockById(el.dataset.id);
+  if (!b) return;
+  b.text = el.value;
+  document.getElementById('memoHint').style.display = isMemoEmpty(currentBlocks) ? 'block' : 'none';
+  scheduleAutosave();
+}
+function onBlockKeydown(e, id) {
+  const idx = currentBlocks.findIndex(b => b.id === id);
+  const b = currentBlocks[idx];
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    if ((b.type === 'bullet' || b.type === 'checklist') && b.text.trim() === '') {
+      b.type = 'paragraph';
+      renderEditor();
+      focusBlock(b.id, false);
+      return;
+    }
+    const nb = newBlock({ type: (b.type === 'bullet' || b.type === 'checklist') ? b.type : 'paragraph' });
+    currentBlocks.splice(idx + 1, 0, nb);
+    renderEditor();
+    focusBlock(nb.id, true);
+    scheduleAutosave();
+    return;
+  }
+  if (e.key === 'Backspace') {
+    const el = e.target;
+    if (el.selectionStart === 0 && el.selectionEnd === 0 && currentBlocks.length > 1) {
+      e.preventDefault();
+      const prev = currentBlocks[idx - 1];
+      if (prev) {
+        const mergeAt = prev.text.length;
+        prev.text += b.text;
+        currentBlocks.splice(idx, 1);
+        renderEditor();
+        focusBlock(prev.id, false);
+        document.getElementById('blockInput-' + prev.id).setSelectionRange(mergeAt, mergeAt);
+        scheduleAutosave();
+      }
+    }
+  }
+}
+function toggleBlockChecked(id) {
+  const b = blockById(id);
+  if (!b) return;
+  b.checked = !b.checked;
+  renderEditor();
+  focusedBlockId = id;
+  scheduleAutosave();
+}
+function onFormatClick(fmt) {
+  if (!focusedBlockId) return;
+  const b = blockById(focusedBlockId);
+  if (!b) return;
+  b.type = (b.type === fmt) ? 'paragraph' : fmt;
+  hideFormatPopup();
+  renderEditor();
+  focusBlock(b.id, false);
+  focusedBlockId = b.id;
+  scheduleAutosave();
+}
+
+// ============================================================
+//  Format popup — long-press a block's text to bring up 見出し/箇条書き/
+//  チェック as a small floating bubble near the press point; nothing is
+//  shown the rest of the time (replaces an earlier always-visible
+//  toolbar that felt cluttered — per user feedback 2026-07-20).
+// ============================================================
+const BLOCK_LONGPRESS_MS = 550;
+const BLOCK_MOVE_CANCEL_PX = 10;
+const FORMAT_OPTIONS = [['heading', '見出し'], ['bullet', '箇条書き'], ['checklist', 'チェック']];
+let blockLongPressTimer = null;
+let blockLongPressStart = null;
+function onBlockPointerDown(e, id) {
+  blockLongPressStart = { x: e.clientX, y: e.clientY };
+  clearTimeout(blockLongPressTimer);
+  blockLongPressTimer = setTimeout(() => {
+    focusedBlockId = id;
+    showFormatPopup(id, e.clientX);
+  }, BLOCK_LONGPRESS_MS);
+}
+function onBlockPointerMove(e) {
+  if (!blockLongPressStart) return;
+  const dx = e.clientX - blockLongPressStart.x, dy = e.clientY - blockLongPressStart.y;
+  if (Math.abs(dx) > BLOCK_MOVE_CANCEL_PX || Math.abs(dy) > BLOCK_MOVE_CANCEL_PX) clearTimeout(blockLongPressTimer);
+}
+function onBlockPointerUp() { clearTimeout(blockLongPressTimer); blockLongPressStart = null; }
+function showFormatPopup(id, clientX) {
+  const b = blockById(id);
+  const row = document.getElementById('blockInput-' + id)?.closest('.memo-block');
+  if (!b || !row) return;
+  const popup = document.getElementById('formatPopup');
+  popup.innerHTML = FORMAT_OPTIONS.map(([fmt, label]) =>
+    `<button type="button" class="${b.type === fmt ? 'active' : ''}" onclick="onFormatClick('${fmt}')">${label}</button>`
+  ).join('');
+  document.getElementById('formatPopupOverlay').classList.add('show');
+  popup.classList.add('show');
+  const MARGIN = 8, GAP = 8;
+  const rowRect = row.getBoundingClientRect();
+  const w = popup.offsetWidth, h = popup.offsetHeight;
+  let left = clientX - w / 2;
+  left = Math.min(Math.max(left, MARGIN), window.innerWidth - w - MARGIN);
+  let top = rowRect.top - h - GAP;
+  if (top < MARGIN) top = rowRect.bottom + GAP; // not enough room above: show below instead
+  popup.style.left = left + 'px';
+  popup.style.top = top + 'px';
+}
+function hideFormatPopup() {
+  document.getElementById('formatPopupOverlay').classList.remove('show');
+  document.getElementById('formatPopup').classList.remove('show');
+}
+
+// ============================================================
+//  Autosave lifecycle
+// ============================================================
+function hasContent() { return !!currentPhotoBlob || !isMemoEmpty(currentBlocks); }
+function scheduleAutosave() {
+  clearTimeout(saveDebounceTimer);
+  saveDebounceTimer = setTimeout(doAutosaveNow, 600);
+}
+async function doAutosaveNow() {
+  clearTimeout(saveDebounceTimer);
+  if (!hasContent()) return null;
+  const now = Date.now();
+  if (!currentItemId) { currentItemId = genId(); currentCreatedAt = now; }
+  const rec = {
+    id: currentItemId,
+    photo: currentPhotoBlob,
+    photoOrig: currentPhotoOrigBlob,
+    crop: currentCrop,
+    blocks: deepCloneBlocks(currentBlocks),
+    memoText: computeSearchText(currentBlocks),
+    createdAt: currentCreatedAt,
+    updatedAt: now,
+  };
+  await put('items', rec);
+  const idx = items.findIndex(i => i.id === rec.id);
+  if (idx >= 0) { if (items[idx]._photoUrl && items[idx].photo !== rec.photo) URL.revokeObjectURL(items[idx]._photoUrl); items[idx] = rec; }
+  else items.push(rec);
+  return rec;
+}
+async function leavingInputTab() {
+  clearTimeout(saveDebounceTimer);
+  if (hasContent()) {
+    await doAutosaveNow();
+  } else if (currentItemId) {
+    await del('items', currentItemId);
+    items = items.filter(i => i.id !== currentItemId);
+    currentItemId = null; currentCreatedAt = null; editSnapshot = null; editingReturnStack = null;
+  }
+}
+function resetInputForNewEntry() {
+  hideFormatPopup();
+  currentItemId = null; currentCreatedAt = null; editSnapshot = null; editingReturnStack = null;
+  currentBlocks = [newBlock()];
+  currentPhotoBlob = null; currentPhotoOrigBlob = null; currentCrop = null;
+  focusedBlockId = null;
+  clearPhotoPreview();
+  renderEditor();
+  document.getElementById('saveBtn').textContent = '保存';
+  updateHeader();
+}
+async function onSaveClick() {
+  await doAutosaveNow();
+  const wasEditing = !!editSnapshot;
+  const returnStack = editingReturnStack;
+  showToast(wasEditing ? '更新しました' : '保存しました');
+  if (wasEditing) {
+    browseStack = returnStack || [{ type: 'grid' }];
+    // Reset the input tab's live editing state (currentBlocks/photo/etc),
+    // not just editSnapshot/currentItemId — otherwise the just-edited
+    // content lingers in memory and, if the user later revisits the
+    // input tab without typing anything new, leavingInputTab() sees
+    // "content" with no currentItemId and autosaves it as a brand-new
+    // phantom duplicate of the item just saved.
+    resetInputForNewEntry();
+    await switchTab('browse');
+  } else {
+    resetInputForNewEntry();
+  }
+}
+async function onResetClick() {
+  if (editSnapshot) {
+    const ok = await askConfirm('編集内容を破棄して元に戻しますか？', '元に戻す');
+    if (!ok) return;
+    await put('items', editSnapshot);
+    const idx = items.findIndex(i => i.id === editSnapshot.id);
+    if (idx >= 0) items[idx] = editSnapshot;
+    browseStack = editingReturnStack || [{ type: 'grid' }];
+    // See the identical note in onSaveClick: must clear the live editing
+    // state too, not just currentItemId, or leftover in-memory edits get
+    // autosaved as a phantom duplicate the next time input is visited.
+    resetInputForNewEntry();
+    await switchTab('browse');
+    return;
+  }
+  if (hasContent()) {
+    const ok = await askConfirm('入力内容をリセットしますか？', 'リセット');
+    if (!ok) return;
+  }
+  if (currentItemId) {
+    await del('items', currentItemId);
+    items = items.filter(i => i.id !== currentItemId);
+  }
+  resetInputForNewEntry();
+}
+async function startEdit(id) {
+  const it = itemById(id);
+  if (!it) return;
+  editSnapshot = { id: it.id, photo: it.photo, photoOrig: it.photoOrig, crop: it.crop ? Object.assign({}, it.crop) : null, blocks: deepCloneBlocks(it.blocks), createdAt: it.createdAt, updatedAt: it.updatedAt, memoText: it.memoText };
+  editingReturnStack = browseStack.map(s => Object.assign({}, s));
+  currentItemId = it.id;
+  currentCreatedAt = it.createdAt;
+  currentBlocks = deepCloneBlocks(it.blocks && it.blocks.length ? it.blocks : [newBlock()]);
+  currentPhotoBlob = it.photo || null;
+  currentPhotoOrigBlob = it.photoOrig || null;
+  currentCrop = it.crop ? Object.assign({}, it.crop) : null;
+  focusedBlockId = null;
+  if (currentPhotoBlob) setPhotoPreview(currentPhotoBlob); else clearPhotoPreview();
+  renderEditor();
+  document.getElementById('saveBtn').textContent = '完了';
+  currentTab = 'input';
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-input').classList.add('active');
+  document.getElementById('nav-input').classList.add('active');
+  document.getElementById('formActions').classList.add('show');
+  updateHeader();
+}
+
+async function deleteItemCore(id) {
+  const it = itemById(id);
+  await del('items', id);
+  items = items.filter(i => i.id !== id);
+  if (it && it._photoUrl) { URL.revokeObjectURL(it._photoUrl); it._photoUrl = null; }
+  return it;
+}
+function showItemUndoToast(it) {
+  showUndoToast('削除しました', async () => {
+    await put('items', it);
+    items.push(it);
+    renderBrowse();
+  });
+}
+async function confirmDeleteItem(id) {
+  const ok = await askConfirm('この記録を削除しますか？', '削除');
+  if (!ok) return;
+  const it = await deleteItemCore(id);
+  popBrowse();
+  showItemUndoToast(it);
+}
+async function confirmDeleteItemFromGrid(id) {
+  const it = itemById(id);
+  if (!it) return;
+  const ok = await askConfirm('この記録を削除しますか？', '削除');
+  if (!ok) return;
+  await deleteItemCore(id);
+  renderBrowse();
+  showItemUndoToast(it);
+}
+
+// ============================================================
+//  Photo select + crop (original kept alongside the cropped square, so
+//  re-cropping later starts from full quality instead of zooming into
+//  an already-cropped image repeatedly)
+// ============================================================
+function loadImageFromBlob(blob) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => resolve({ img, url });
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('load failed')); };
+    img.src = url;
+  });
+}
+async function resizeImageBlob(fileBlob, maxEdge, quality) {
+  const { img, url } = await loadImageFromBlob(fileBlob);
+  try {
+    const scale = Math.min(1, maxEdge / Math.max(img.width, img.height));
+    const w = Math.max(1, Math.round(img.width * scale)), h = Math.max(1, Math.round(img.height * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+    return await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', quality));
+  } finally { URL.revokeObjectURL(url); }
+}
+function triggerPhotoPick() { closePhotoActionSheet(); document.getElementById('photoInput').click(); }
+function onPhotoPickerClick() { if (currentPhotoBlob) openPhotoActionSheet(); else triggerPhotoPick(); }
+function openPhotoActionSheet() { document.getElementById('photoActionOverlay').style.display = 'block'; document.getElementById('photoActionPanel').style.display = 'block'; }
+function closePhotoActionSheet() { document.getElementById('photoActionOverlay').style.display = 'none'; document.getElementById('photoActionPanel').style.display = 'none'; }
+
+async function onPhotoSelected(e) {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  let origBlob;
+  try { origBlob = await resizeImageBlob(file, 1600, 0.9); }
+  catch (err) { showToast('この画像は読み込めませんでした'); return; }
+  pendingOrigForCrop = origBlob;
+  try {
+    const { img, url } = await loadImageFromBlob(origBlob);
+    openCrop(img, url, null);
+  } catch (err) { showToast('この画像は読み込めませんでした'); }
+}
+async function recropExistingPhoto() {
+  closePhotoActionSheet();
+  if (!currentPhotoOrigBlob) { showToast('元画像が見つからないため、この写真は再トリムできません'); return; }
+  pendingOrigForCrop = currentPhotoOrigBlob;
+  try {
+    const { img, url } = await loadImageFromBlob(currentPhotoOrigBlob);
+    openCrop(img, url, currentCrop);
+  } catch (err) { showToast('この画像は読み込めませんでした'); }
+}
+function deleteExistingPhoto() {
+  closePhotoActionSheet();
+  currentPhotoBlob = null; currentPhotoOrigBlob = null; currentCrop = null;
+  clearPhotoPreview();
+  scheduleAutosave();
+}
+
+const CROP_SIZE = 800;
+let cropImg = null, cropObjectUrl = null, pendingOrigForCrop = null;
+let cropZoomVal = 1, cropPanX = 0, cropPanY = 0, cropBaseScale = 1;
+let cropDragging = false, cropDragStart = null;
+
+function openCrop(img, objectUrl, initialCrop) {
+  cropImg = img; cropObjectUrl = objectUrl;
+  const canvas = document.getElementById('cropCanvas');
+  canvas.width = CROP_SIZE; canvas.height = CROP_SIZE;
+  cropBaseScale = Math.max(CROP_SIZE / img.width, CROP_SIZE / img.height);
+  if (initialCrop) {
+    cropZoomVal = initialCrop.zoom; cropPanX = initialCrop.panX; cropPanY = initialCrop.panY;
+    clampPan();
+  } else {
+    cropZoomVal = 1;
+    const w = img.width * cropBaseScale, h = img.height * cropBaseScale;
+    cropPanX = (CROP_SIZE - w) / 2;
+    cropPanY = (CROP_SIZE - h) / 2;
+  }
+  document.getElementById('cropZoom').value = cropZoomVal;
+  redrawCrop();
+  document.getElementById('cropOverlay').classList.add('show');
+}
+function clampPan() {
+  const scale = cropBaseScale * cropZoomVal;
+  const w = cropImg.width * scale, h = cropImg.height * scale;
+  cropPanX = Math.min(0, Math.max(CROP_SIZE - w, cropPanX));
+  cropPanY = Math.min(0, Math.max(CROP_SIZE - h, cropPanY));
+}
+function redrawCrop() {
+  const canvas = document.getElementById('cropCanvas');
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, CROP_SIZE, CROP_SIZE);
+  const scale = cropBaseScale * cropZoomVal;
+  const w = cropImg.width * scale, h = cropImg.height * scale;
+  ctx.drawImage(cropImg, cropPanX, cropPanY, w, h);
+}
+function onCropZoomChange() {
+  cropZoomVal = parseFloat(document.getElementById('cropZoom').value);
+  clampPan();
+  redrawCrop();
+}
+function cropPointerRatio() {
+  const rect = document.getElementById('cropCanvas').getBoundingClientRect();
+  return CROP_SIZE / rect.width;
+}
+function onCropPointerDown(e) {
+  cropDragging = true;
+  cropDragStart = { x: e.clientX, y: e.clientY, panX: cropPanX, panY: cropPanY };
+  e.target.setPointerCapture(e.pointerId);
+}
+function onCropPointerMove(e) {
+  if (!cropDragging) return;
+  const ratio = cropPointerRatio();
+  cropPanX = cropDragStart.panX + (e.clientX - cropDragStart.x) * ratio;
+  cropPanY = cropDragStart.panY + (e.clientY - cropDragStart.y) * ratio;
+  clampPan();
+  redrawCrop();
+}
+function onCropPointerUp() { cropDragging = false; }
+
+function cancelCrop() {
+  document.getElementById('cropOverlay').classList.remove('show');
+  if (cropObjectUrl) URL.revokeObjectURL(cropObjectUrl);
+  cropImg = null; cropObjectUrl = null; pendingOrigForCrop = null;
+}
+function confirmCrop() {
+  const canvas = document.getElementById('cropCanvas');
+  canvas.toBlob(blob => {
+    currentPhotoBlob = blob;
+    currentPhotoOrigBlob = pendingOrigForCrop;
+    currentCrop = { zoom: cropZoomVal, panX: cropPanX, panY: cropPanY };
+    setPhotoPreview(blob);
+    document.getElementById('cropOverlay').classList.remove('show');
+    if (cropObjectUrl) URL.revokeObjectURL(cropObjectUrl);
+    cropImg = null; cropObjectUrl = null; pendingOrigForCrop = null;
+    scheduleAutosave();
+  }, 'image/jpeg', 0.85);
+}
+let previewUrl = null;
+function setPhotoPreview(blob) {
+  const img = document.getElementById('photoPreview');
+  const ph = document.getElementById('photoPlaceholder');
+  if (previewUrl) URL.revokeObjectURL(previewUrl);
+  previewUrl = URL.createObjectURL(blob);
+  img.src = previewUrl;
+  img.style.display = 'block';
+  ph.style.display = 'none';
+  document.getElementById('photoHint').style.display = 'block';
+}
+function clearPhotoPreview() {
+  const img = document.getElementById('photoPreview');
+  const ph = document.getElementById('photoPlaceholder');
+  if (previewUrl) { URL.revokeObjectURL(previewUrl); previewUrl = null; }
+  img.src = '';
+  img.style.display = 'none';
+  ph.style.display = 'block';
+  document.getElementById('photoHint').style.display = 'none';
+}
+
+// ============================================================
+//  Confirm modal (reusable)
+// ============================================================
+let confirmResolve = null;
+function askConfirm(title, okLabel) {
+  return new Promise(resolve => {
+    confirmResolve = resolve;
+    document.getElementById('confirmTitle').textContent = title;
+    document.getElementById('confirmOkBtn').textContent = okLabel || '削除';
+    document.getElementById('confirmModal').classList.add('show');
+  });
+}
+function closeConfirm(result) {
+  document.getElementById('confirmModal').classList.remove('show');
+  if (confirmResolve) { confirmResolve(result); confirmResolve = null; }
+}
+let importModeResolve = null;
+function askImportMode() {
+  return new Promise(resolve => { importModeResolve = resolve; document.getElementById('importModeModal').classList.add('show'); });
+}
+function closeImportMode(result) {
+  document.getElementById('importModeModal').classList.remove('show');
+  if (importModeResolve) { importModeResolve(result); importModeResolve = null; }
+}
+
+// ============================================================
+//  Toast
+// ============================================================
+let toastUndoFn = null, toastTimer = null;
+function showUndoToast(msg, undoFn) {
+  const t = document.getElementById('toast');
+  document.getElementById('toastMsg').textContent = msg;
+  const btn = document.getElementById('toastUndoBtn');
+  toastUndoFn = undoFn;
+  btn.style.display = undoFn ? 'inline' : 'none';
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.classList.remove('show'); toastUndoFn = null; }, 5000);
+}
+function showToast(msg) { showUndoToast(msg, null); }
+function dismissToast() { document.getElementById('toast').classList.remove('show'); clearTimeout(toastTimer); }
+document.getElementById('toastUndoBtn').onclick = (e) => {
+  e.stopPropagation();
+  if (toastUndoFn) { toastUndoFn(); toastUndoFn = null; }
+  dismissToast();
+};
+
+// ============================================================
+//  Share (single item)
+// ============================================================
+async function shareItem(id) {
+  const it = itemById(id);
+  if (!it) return;
+  const text = blocksToShareText(it.blocks || []);
+  if (!navigator.share) { showToast('この端末は共有機能に対応していません'); return; }
+  try {
+    let payload = { text };
+    if (it.photo && navigator.canShare) {
+      const file = new File([it.photo], 'plat-photo.jpg', { type: 'image/jpeg' });
+      if (navigator.canShare({ files: [file] })) payload = { files: [file], text };
+    }
+    await navigator.share(payload);
+  } catch (err) {
+    if (err && err.name !== 'AbortError') showToast('共有に失敗しました');
+  }
+}
+
+// ============================================================
+//  Settings / backup
+// ============================================================
+const APP_ID = 'plat';
+const SCHEMA_VERSION = 1;
+function openSettings() { document.getElementById('settingsOverlay').style.display = 'block'; document.getElementById('settingsPanel').style.display = 'block'; }
+function closeSettings() { document.getElementById('settingsOverlay').style.display = 'none'; document.getElementById('settingsPanel').style.display = 'none'; }
+function blobToDataURL(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+async function dataURLToBlob(dataURL) {
+  const res = await fetch(dataURL);
+  return res.blob();
+}
+async function buildBackupPayload() {
+  return {
+    app: APP_ID,
+    schemaVersion: SCHEMA_VERSION,
+    exportedAt: new Date().toISOString(),
+    items: await Promise.all(items.map(async it => ({
+      id: it.id,
+      blocks: it.blocks,
+      crop: it.crop,
+      createdAt: it.createdAt,
+      updatedAt: it.updatedAt,
+      photo: it.photo ? await blobToDataURL(it.photo) : null,
+      photoOrig: it.photoOrig ? await blobToDataURL(it.photoOrig) : null,
+    }))),
+  };
+}
+async function exportBackup() {
+  const payload = await buildBackupPayload();
+  const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  const d = new Date();
+  a.download = `plat-backup-${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  closeSettings();
+  showToast('バックアップを書き出しました');
+}
+async function onImportFileChosen(event) {
+  const file = event.target.files[0];
+  event.target.value = '';
+  if (!file) return;
+  let payload;
+  try { payload = JSON.parse(await file.text()); }
+  catch (e) { showToast('ファイルを読み込めませんでした'); return; }
+  if (!payload || payload.app !== APP_ID || !Array.isArray(payload.items)) {
+    showToast('Plat用のバックアップファイルではないようです');
+    return;
+  }
+  closeSettings();
+  const mode = await askImportMode();
+  if (!mode) return;
+
+  let ok = 0, skipped = 0;
+  const newItems = [];
+  for (const raw of payload.items) {
+    if (!raw || typeof raw.id !== 'string' || !Array.isArray(raw.blocks)) { skipped++; continue; }
+    let photo = null, photoOrig = null;
+    try { photo = raw.photo ? await dataURLToBlob(raw.photo) : null; } catch (e) { photo = null; }
+    try { photoOrig = raw.photoOrig ? await dataURLToBlob(raw.photoOrig) : null; } catch (e) { photoOrig = null; }
+    newItems.push({
+      id: raw.id,
+      blocks: raw.blocks.map(b => newBlock(b)),
+      crop: raw.crop || null,
+      photo, photoOrig,
+      createdAt: typeof raw.createdAt === 'number' ? raw.createdAt : Date.now(),
+      updatedAt: typeof raw.updatedAt === 'number' ? raw.updatedAt : Date.now(),
+      memoText: computeSearchText(raw.blocks.map(b => newBlock(b))),
+    });
+    ok++;
+  }
+
+  const prevItems = items.slice();
+  if (mode === 'replace') {
+    await clearStore('items');
+    for (const it of newItems) await put('items', it);
+    items = newItems;
+  } else {
+    for (const it of newItems) await put('items', it);
+    const map = new Map(items.map(i => [i.id, i]));
+    for (const it of newItems) map.set(it.id, it);
+    items = Array.from(map.values());
+  }
+  browseStack = [{ type: 'grid' }];
+  searchMode = false; searchQuery = '';
+  renderBrowse();
+  showUndoToast(`${ok}件を読み込みました${skipped ? `（${skipped}件は形式不正でスキップ）` : ''}`, async () => {
+    await clearStore('items');
+    for (const it of prevItems) await put('items', it);
+    items = prevItems;
+    browseStack = [{ type: 'grid' }];
+    renderBrowse();
+  });
+}
+
+// ============================================================
+//  Init
+// ============================================================
+window.addEventListener('DOMContentLoaded', async () => {
+  await openDB();
+  items = await getAll('items');
+  currentBlocks = [newBlock()];
+  renderEditor();
+
+  document.getElementById('cropCanvas').addEventListener('pointerdown', onCropPointerDown);
+  window.addEventListener('pointermove', onCropPointerMove);
+  window.addEventListener('pointerup', onCropPointerUp);
+
+  await switchTab('input');
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('service-worker.js').catch(() => {});
+  }
+});
+window.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden' && currentTab === 'input') {
+    clearTimeout(saveDebounceTimer);
+    if (hasContent()) doAutosaveNow();
+  }
+});
+</script>
+</body>
+</html>
