@@ -423,50 +423,24 @@ if (window.visualViewport) {
   window.visualViewport.addEventListener('scroll', syncViewportHeight);
 }
 let unfreezeTimer = null;
-// Unlike the sibling app's short static fields (which never grow past the
-// frozen height), Plat's memo is a block editor that can grow to many
-// lines as the user types — once it does, <main>'s own flex-computed
-// height (based on body's FROZEN, pre-keyboard-height) stays taller than
-// the keyboard actually leaves visible, so <main> never overflows/scrolls
-// at all and later lines end up in an invisible-but-unscrollable dead
-// zone behind the keyboard (real bug hit on first real-device check,
-// 2026-07-20). Fix: once the keyboard has finished sliding in, explicitly
-// shrink <main> itself (not body) to the ACTUAL visible height
-// (visualViewport.height minus the header), so overflow-y:auto on <main>
-// has real room to work with. This is a single one-time measurement at
-// settle time, not a continuous per-frame resync — deliberately avoiding
-// the exact "reactively fight the keyboard on every event" pattern that
-// caused the sibling app's original multi-round debugging saga.
-let mainHeightSettleTimer = null;
-function freezeMainHeightForKeyboard() {
-  if (!fieldIsFocused) return; // blurred again before this fired
-  const main = document.querySelector('main');
-  const header = document.querySelector('header');
-  const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
-  const h = Math.max(120, vh - header.offsetHeight);
-  // `main{flex:1}` expands to flex-basis:0%, which overrides a plain
-  // `height` for sizing along a column flex container's main axis — so
-  // `height` alone here would be silently ineffective. `flex:none` makes
-  // the explicit height actually take effect.
-  main.style.flex = 'none';
-  main.style.height = h + 'px';
-}
+// 2026-07-20: tried shrinking <main> to the actual visible height while
+// focused (so a growing memo could scroll fully into view above the
+// keyboard) — user explicitly rejected this after a real-device check and
+// asked for the sibling app's exact behavior instead: the background never
+// moves at all, the keyboard simply lands on top of whatever's already on
+// screen. Reverted to that literal "freeze and do nothing else" approach;
+// do not reintroduce a dynamic main-resize/scroll here without asking.
 document.addEventListener('focusin', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
     clearTimeout(unfreezeTimer);
     fieldIsFocused = true;
-    clearTimeout(mainHeightSettleTimer);
-    mainHeightSettleTimer = setTimeout(freezeMainHeightForKeyboard, 320); // let the keyboard's slide-in animation finish before measuring, same delay the sibling app settled on for the equivalent wait
   }
 });
 document.addEventListener('focusout', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
     clearTimeout(unfreezeTimer);
-    clearTimeout(mainHeightSettleTimer);
     unfreezeTimer = setTimeout(() => {
       fieldIsFocused = false;
-      const main = document.querySelector('main');
-      main.style.flex = ''; main.style.height = ''; // hand sizing back to the normal flex:1 layout
       syncViewportHeight();
     }, 150);
   }
@@ -866,33 +840,6 @@ function focusBlock(id, atStart) {
   el.focus();
   const pos = atStart ? 0 : el.value.length;
   try { el.setSelectionRange(pos, pos); } catch (e) {}
-  scrollFocusedBlockIntoView(el);
-}
-// iOS's native "scroll the focused field into view" only reliably fires
-// for a real user-gesture tap — it does NOT reliably fire for focus()
-// called programmatically from JS (e.g. after Enter creates a new block
-// below the current scroll position while the keyboard is already open),
-// so newly-created lines could end up hidden behind the keyboard with no
-// scroll adjustment at all. This is scoped to ONLY the programmatic-focus
-// path (focusBlock, called from Enter/Backspace/format-toggle — never
-// from a real tap, which just focuses natively without going through this
-// function), specifically to avoid re-fighting native scroll-into-view on
-// genuine taps — that exact conflict is what forced the sibling app
-// (Sake/Rove) to rip out an equivalent explicit scrollIntoView entirely
-// (see its CLAUDE.md keyboard-layout saga). Manual visualViewport-based
-// math is used instead of el.scrollIntoView() because body's height is
-// deliberately frozen while a field is focused (see syncViewportHeight),
-// so <main>'s own layout box doesn't shrink for the keyboard the way
-// scrollIntoView's visibility check assumes.
-function scrollFocusedBlockIntoView(el) {
-  requestAnimationFrame(() => {
-    const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
-    const main = document.querySelector('main');
-    const rect = el.getBoundingClientRect();
-    const MARGIN = 16;
-    if (rect.bottom > vh - MARGIN) main.scrollTop += (rect.bottom - vh + MARGIN);
-    else if (rect.top < MARGIN) main.scrollTop -= (MARGIN - rect.top);
-  });
 }
 function onBlockInput(el) {
   const b = blockById(el.dataset.id);
