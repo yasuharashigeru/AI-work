@@ -9,13 +9,74 @@ function _init()
 	pal(4, 135, 1)  -- color 4 displays as hidden color 135, used for stage background
 	palt(0, false)  -- color 0 (black) no longer transparent
 	palt(8, true)   -- color 8 (red) is transparent instead
+	frame_count = 0
 	game_state = "title" -- title / stage_door / play / stage_clear / win / lose
 end
+
+confetti_colors = {8, 9, 10, 11, 12, 14, 15} -- bright colors only, no black/bg/dark shades
+
+-- x = breakable brick, # = unbreakable brick, . = empty
+-- difficulty comes entirely from these layouts, not from speed/paddle size
+-- (smaller bricks + a 12-wide grid give more room for corridors/chambers)
+stage_layouts = {
+	{
+		"xxxxxxxxxxxx",
+		"xxx.xxxx.xxx",
+		"xxxxxxxxxxxx",
+		"xx.xxxxxx.xx",
+		".xxxxxxxxxx."
+	},
+	{
+		-- only the front (top) row has concrete blocks, pushed out to
+		-- the edges so they don't squeeze the middle
+		"xxxxxxxxxxxx",
+		"x#xxxxxxxx#x",
+		"xxxxxxxxxxxx",
+		"xxx.xxxx.xxx",
+		"xxxxxxxxxxxx",
+		"xxxxxxxxxxxx"
+	},
+	{
+		-- corridor along the left edge; sneak the ball down alongside
+		-- the concrete wall, then it bursts into the chamber below
+		"...xxxxxxxxx",
+		"...#xxxxxxxx",
+		"...#xxxxxxxx",
+		"...#xxxxxxxx",
+		"xxxxxxxxxxxx",
+		"xxxxxxxxxxxx",
+		"xxxxxxxxxxxx"
+	},
+	{
+		"#xxxxxxxxxx#",
+		"x.x.x.x.x.x.",
+		".x.x.x.x.x.x",
+		"x.x.x.x.x.x.",
+		"#xxxxxxxxxx#",
+		"xx#xxxxxx#xx"
+	},
+	{
+		-- two parallel corridors this time, into a wider chamber
+		"xxxxxxxxxxxx",
+		"x#x#....#x#x",
+		"x#x#....#x#x",
+		"xx.#....#.xx",
+		"xx..xxxx..xx",
+		"xxxxxxxxxxxx",
+		"xxxxxxxxxxxx",
+		"x#xxxxxxxx#x"
+	}
+}
 
 function start_game()
 	stage = 1
 	score = 0
 	lives = 3
+	next_1up = 1000
+	oneup_timer = 0
+	frame_count = 0
+	paddle_big = false -- paddle-size item: no timer, lasts until a miss
+	debug_invincible = false -- debug: down arrow toggles no-life-loss
 	game_state = "stage_door"
 	door_timer = 45
 end
@@ -24,52 +85,106 @@ function new_stage()
 	paddle = {
 		x = 0,
 		y = 120,
-		base_w = max(16, 24 - (stage - 1) * 2),
+		base_w = 24,
 		h = 4,
-		speed = 3
+		speed = 5
 	}
 	paddle.w = paddle.base_w
 	paddle.x = (128 - paddle.w) / 2
 
 	balls = {}
-	add(balls, {
+	local first_ball = add(balls, {
 		x = 64,
 		y = 100,
-		dx = 1,
-		dy = -1,
 		hw = 4,
 		hh = 8,
-		speed = 1.5 + (stage - 1) * 0.3,
-		flash = 0
+		speed = 1.8,
+		flash = 0,
+		pink = false,
+		bebetori = 0
 	})
+	set_dir(first_ball, 1, -1)
 
 	items = {}
 
+	catch_timer = 0
+	bebetori_intro_timer = 0
+	bebetori_target = nil
+
 	bricks = {}
-	local rows = 3 + stage
-	local cols = 8
-	local brick_w = 14
-	local brick_h = 6
-	for row = 0, rows - 1 do
-		for col = 0, cols - 1 do
-			add(bricks, {
-				x = col * (brick_w + 2) + 4,
-				y = row * (brick_h + 2) + 8,
-				w = brick_w,
-				h = brick_h,
-				alive = true,
-				img_x = 0,
-				has_item = false
-			})
+	local brick_w = 9
+	local brick_h = 4
+	local layout = stage_layouts[stage]
+	for row = 1, #layout do
+		local rowstr = layout[row]
+		for col = 1, #rowstr do
+			local ch = sub(rowstr, col, col)
+			if ch != "." then
+				add(bricks, {
+					x = (col - 1) * (brick_w + 1) + 4,
+					y = (row - 1) * (brick_h + 1) + 8,
+					w = brick_w,
+					h = brick_h,
+					alive = true,
+					has_item = false,
+					breakable = (ch != "#")
+				})
+			end
 		end
 	end
 
-	bricks[flr(rnd(#bricks)) + 1].has_item = true
+	-- hide 3-4 items among the breakable bricks. each kind appears at most
+	-- once per stage, except speed reset (1) which can show up multiple
+	-- times since it's a relief valve for the ever-rising ball speed
+	-- (0=split/classic 1=speed reset 2=paddle x1.5 3=catch 4=bebetori)
+	local breakable_list = {}
+	for b in all(bricks) do
+		if b.breakable then add(breakable_list, b) end
+	end
+	local kinds_left = {0, 1, 2, 3, 4}
+	local item_count = min(#breakable_list, 3 + flr(rnd(2)))
+	for i = 1, item_count do
+		local idx = flr(rnd(#breakable_list)) + 1
+		local br = breakable_list[idx]
+		br.has_item = true
+		local kidx = flr(rnd(#kinds_left)) + 1
+		local picked = kinds_left[kidx]
+		br.item_kind = picked
+		if picked != 1 then
+			del(kinds_left, picked)
+		end
+		del(breakable_list, br)
+	end
 end
 
--- paddle width follows how many split balls remain: 3 balls = 3x, 2 = 2x, 1 (or 0) = normal
+-- sets a ball's direction from a raw (dx,dy) vector, normalized to length
+-- 1 so the actual on-screen speed is always exactly ball.speed, no matter
+-- how steep the angle is (an un-normalized angle made sharper hits move
+-- faster than straight ones, which felt like unintended extra speed)
+function set_dir(ball, dx, dy)
+	local mag = sqrt(dx * dx + dy * dy)
+	if mag > 0 then
+		ball.dx = dx / mag
+		ball.dy = dy / mag
+	else
+		ball.dx = 0
+		ball.dy = -1
+	end
+end
+
+-- while split (pink flora out), paddle is 3x, taking priority over the
+-- paddle-size item's 1.5x (they don't stack; 3x wins if both are active)
 function update_paddle_width()
-	local mult = mid(1, #balls, 3)
+	local mult = 1
+	local split_active = false
+	for ball in all(balls) do
+		if ball.pink then split_active = true end
+	end
+	if split_active then
+		mult = 3
+	elseif paddle_big then
+		mult = 1.5
+	end
 	local new_w = paddle.base_w * mult
 	paddle.x -= (new_w - paddle.w) / 2
 	paddle.w = new_w
@@ -77,6 +192,8 @@ function update_paddle_width()
 end
 
 function _update()
+	frame_count += 1
+
 	if game_state == "title" then
 		if btnp(4) then
 			start_game()
@@ -103,6 +220,127 @@ function _update()
 		return
 	end
 
+	if game_state == "bebetori_intro" then
+		bebetori_intro_timer -= 1
+		if bebetori_intro_timer <= 0 then
+			bebetori_target.bebetori = 450
+			bebetori_target = nil
+			game_state = "play"
+		end
+		return
+	end
+
+	if game_state == "bonus" then
+		bonus_timer -= 1
+
+		-- brief pause before the flora start sliding to the center
+		if bonus_timer <= 90 then
+			for ball in all(balls) do
+				if ball.pink then
+					ball.x += (ball.target_x - ball.x) * 0.2
+					ball.y += (ball.target_y - ball.y) * 0.2
+				end
+			end
+		end
+
+		if bonus_timer == 60 then
+			for ball in all(balls) do
+				if ball.pink then bonus_total += 200 end
+			end
+			score += bonus_total
+			sfx(7)
+		end
+
+		if bonus_timer <= 0 then
+			if stage >= 5 then
+				game_state = "win"
+				win_timer = 0
+				dance_state = "crawl_r"
+				dance_x = 24
+				dance_phase_timer = 0
+				dance_trips = 0
+				sfx(5)
+				music(0)
+			else
+				game_state = "stage_clear"
+				clear_timer = 60
+				sfx(5)
+			end
+		end
+		return
+	end
+
+	if game_state == "win" then
+		win_timer += 1
+
+		-- victory dance: inchworm-crawl right (thrust on 32/33, anchor on
+		-- 34/35, ~8fps alternation), hold on 36/37 at the edge, then mirror
+		-- and crawl back left; after a couple round trips, cut the loop and
+		-- settle on 36/37 dead center for the bgm's closing stinger
+		if dance_state == "crawl_r" or dance_state == "crawl_l" then
+			dance_phase_timer += 1
+			local pose_idx = flr(dance_phase_timer / 4) % 2 -- 0=thrust 1=anchor
+			local dir = (dance_state == "crawl_r") and 1 or -1
+			if pose_idx == 0 then
+				dance_x += dir * 2 -- 8px per 4-frame thrust
+			end
+			if dance_state == "crawl_r" and dance_x >= 104 then
+				dance_x = 104
+				dance_state = "hold_r"
+				dance_phase_timer = 0
+			elseif dance_state == "crawl_l" and dance_x <= 24 then
+				dance_x = 24
+				dance_state = "hold_l"
+				dance_phase_timer = 0
+			end
+		elseif dance_state == "hold_r" or dance_state == "hold_l" then
+			dance_phase_timer += 1
+			if dance_phase_timer >= 20 then
+				dance_phase_timer = 0
+				if dance_state == "hold_r" then
+					dance_state = "crawl_l"
+				else
+					dance_trips += 1
+					if dance_trips >= 2 then
+						dance_state = "finale"
+						music(-1)
+						sfx(11)
+						confetti = {}
+						for i = 1, 40 do
+							add(confetti, {
+								x = rnd(128),
+								y = rnd(128) - 128,
+								c = confetti_colors[flr(rnd(#confetti_colors)) + 1],
+								speed = 0.5 + rnd(1),
+								phase = rnd(1)
+							})
+						end
+					else
+						dance_state = "crawl_r"
+					end
+				end
+			end
+		elseif dance_state == "finale" then
+			-- confetti keeps drifting down and re-spawning at the top
+			-- forever, each flake swaying side to side as it falls
+			for p in all(confetti) do
+				p.y += p.speed
+				p.x += sin(p.phase + frame_count * 0.05) * 0.6
+				if p.y > 128 then
+					p.y = -4 - rnd(20)
+					p.x = rnd(128)
+					p.c = confetti_colors[flr(rnd(#confetti_colors)) + 1]
+				end
+			end
+		end
+
+		if btnp(4) then
+			music(-1)
+			_init()
+		end
+		return
+	end
+
 	if game_state != "play" then
 		if btnp(4) then
 			_init()
@@ -111,67 +349,191 @@ function _update()
 	end
 
 	-- paddle input
-	if btn(0) then paddle.x -= paddle.speed end
-	if btn(1) then paddle.x += paddle.speed end
+	local paddle_move = 0
+	if btn(0) then
+		paddle.x -= paddle.speed
+		paddle_move = -1
+	end
+	if btn(1) then
+		paddle.x += paddle.speed
+		paddle_move = 1
+	end
 	paddle.x = mid(0, paddle.x, 128 - paddle.w)
+
+	-- launch any balls currently stuck to the paddle (catch item):
+	-- angled opposite to whichever way the paddle is moving right now
+	if btnp(4) then
+		for ball in all(balls) do
+			if ball.stuck then
+				ball.stuck = false
+				set_dir(ball, -paddle_move * 0.8, -1)
+			end
+		end
+	end
+
+	-- debug: x button instantly clears the stage
+	if btnp(5) then
+		for b in all(bricks) do
+			if b.breakable then
+				b.alive = false
+			end
+		end
+	end
+
+	-- debug: down arrow toggles "no life lost on miss" (up/down aren't
+	-- used for anything else in this game)
+	if btnp(3) then
+		debug_invincible = not debug_invincible
+	end
+
+	-- debug: up arrow instantly jumps to the win/dance screen, to check
+	-- the victory dance without clearing all 5 stages first
+	if btnp(2) then
+		game_state = "win"
+		win_timer = 0
+		dance_state = "crawl_r"
+		dance_x = 24
+		dance_phase_timer = 0
+		dance_trips = 0
+		sfx(5)
+		music(0)
+	end
 
 	-- balls: movement + collisions
 	for ball in all(balls) do
-		ball.x += ball.dx * ball.speed
-		ball.y += ball.dy * ball.speed
-
-		if ball.flash > 0 then
-			ball.flash -= 1
+		if ball.bebetori > 0 then
+			ball.bebetori -= 1
 		end
 
-		-- each ball may only reverse vertically once per frame, otherwise
-		-- overlapping triggers (e.g. top wall + a brick at the same time)
-		-- can flip dy twice and cancel out, leaving the ball stuck
-		local dy_bounced = false
+		if ball.stuck then
+			-- caught by the paddle: stay at the same spot on the paddle
+			-- (where it was actually caught) and follow it until launched
+			ball.x = paddle.x + mid(0, ball.stick_offset, paddle.w)
+			ball.y = paddle.y - ball.hh
+			if ball.flash > 0 then
+				ball.flash -= 1
+			end
+		else
+			ball.x += ball.dx * ball.speed
+			ball.y += ball.dy * ball.speed
 
-		-- wall bounce
-		if ball.x - ball.hw < 0 or ball.x + ball.hw > 128 then
-			ball.dx = -ball.dx
-			sfx(2)
-		end
-		if ball.y - ball.hh < 0 then
-			ball.dy = -ball.dy
-			dy_bounced = true
-			sfx(2)
-		end
+			if ball.flash > 0 then
+				ball.flash -= 1
+			end
 
-		-- paddle collision
-		if not dy_bounced
-		and ball.dy > 0
-		and ball.y + ball.hh >= paddle.y
-		and ball.y + ball.hh <= paddle.y + paddle.h
-		and ball.x + ball.hw >= paddle.x
-		and ball.x - ball.hw <= paddle.x + paddle.w then
-			ball.dy = -ball.dy
-			dy_bounced = true
-			local hit_pos = (ball.x - paddle.x) / paddle.w - 0.5
-			ball.dx = hit_pos * 2
-			sfx(1)
-		end
+			-- each ball may only reverse per axis once per frame, otherwise
+			-- overlapping triggers (e.g. a wall and a brick at the same time)
+			-- can flip a direction twice and cancel out, leaving the ball stuck
+			local dx_bounced = false
+			local dy_bounced = false
 
-		-- brick collision
-		for b in all(bricks) do
-			if b.alive
-			and ball.x + ball.hw > b.x
-			and ball.x - ball.hw < b.x + b.w
-			and ball.y + ball.hh > b.y
-			and ball.y - ball.hh < b.y + b.h then
-				b.alive = false
-				score += 10
-				sfx(0)
-				if not dy_bounced then
-					ball.dy = -ball.dy
+			-- wall bounce (also push the ball back to the boundary and
+			-- guarantee it's moving away, or it can keep re-triggering
+			-- for several frames and look "stuck" vibrating at the edge)
+			if ball.x - ball.hw < 0 then
+				ball.x = ball.hw
+				ball.dx = max(0.3, abs(ball.dx))
+				dx_bounced = true
+				sfx(2)
+			elseif ball.x + ball.hw > 128 then
+				ball.x = 128 - ball.hw
+				ball.dx = -max(0.3, abs(ball.dx))
+				dx_bounced = true
+				sfx(2)
+			end
+			if ball.y - ball.hh < 0 then
+				ball.y = ball.hh
+				ball.dy = max(0.3, abs(ball.dy))
+				dy_bounced = true
+				sfx(2)
+			end
+
+			-- paddle collision
+			if not dy_bounced
+			and ball.dy > 0
+			and ball.y + ball.hh >= paddle.y
+			and ball.y + ball.hh <= paddle.y + paddle.h
+			and ball.x + ball.hw >= paddle.x
+			and ball.x - ball.hw <= paddle.x + paddle.w then
+				if catch_timer > 0 then
+					ball.stuck = true
+					ball.stick_offset = ball.x - paddle.x
+					ball.dx = 0
+					ball.dy = 0
 					dy_bounced = true
+					sfx(1)
+				else
+					local hit_pos = (ball.x - paddle.x) / paddle.w - 0.5
+					set_dir(ball, hit_pos * 2, -ball.dy)
+					dy_bounced = true
+					ball.speed = min(4, ball.speed + 0.1) -- arkanoid-style: speeds up on every paddle hit
+					sfx(1)
 				end
-				if b.has_item then
-					add(items, {x = b.x + b.w / 2, y = b.y + b.h / 2})
+			end
+
+			-- brick collision
+			for b in all(bricks) do
+				if b.alive
+				and ball.x + ball.hw > b.x
+				and ball.x - ball.hw < b.x + b.w
+				and ball.y + ball.hh > b.y
+				and ball.y - ball.hh < b.y + b.h then
+					-- bebetori destroys and pierces straight through any
+					-- brick, breakable or not; only the ball currently
+					-- under the bebetori effect gets this
+					local pierce = ball.bebetori > 0
+
+					if not pierce then
+						-- figure out which side got hit (smaller overlap =
+						-- the side just grazed), then push the ball back
+						-- outside the brick so it can't re-trigger next
+						-- frame and get stuck vibrating against it
+						local overlap_x = min(ball.x + ball.hw, b.x + b.w) - max(ball.x - ball.hw, b.x)
+						local overlap_y = min(ball.y + ball.hh, b.y + b.h) - max(ball.y - ball.hh, b.y)
+						if overlap_x < overlap_y then
+							if not dx_bounced then
+								if ball.x < b.x + b.w / 2 then
+									ball.x -= overlap_x
+									ball.dx = -abs(ball.dx)
+								else
+									ball.x += overlap_x
+									ball.dx = abs(ball.dx)
+								end
+								dx_bounced = true
+							end
+						else
+							if not dy_bounced then
+								if ball.y < b.y + b.h / 2 then
+									ball.y -= overlap_y
+									ball.dy = -abs(ball.dy)
+								else
+									ball.y += overlap_y
+									ball.dy = abs(ball.dy)
+								end
+								dy_bounced = true
+							end
+						end
+						if not b.breakable then
+							sfx(9)
+						end
+					end
+
+					if b.breakable or pierce then
+						b.alive = false
+						score += 10
+						sfx(0)
+						while score >= next_1up do
+							lives += 1
+							next_1up += 1000
+							oneup_timer = 60
+							sfx(6)
+						end
+						if b.has_item then
+							add(items, {x = b.x + b.w / 2, y = b.y + b.h / 2, kind = b.item_kind})
+						end
+					end
+					break
 				end
-				break
 			end
 		end
 	end
@@ -184,63 +546,138 @@ function _update()
 		and it.y - 4 <= paddle.y + paddle.h
 		and it.x + 4 >= paddle.x
 		and it.x - 4 <= paddle.x + paddle.w then
-			local t = balls[1]
-			balls = {}
-			add(balls, {x = t.x, y = t.y, dx = -0.3, dy = -1, hw = 4, hh = 8, speed = t.speed, flash = 15})
-			add(balls, {x = t.x, y = t.y, dx = 0, dy = -1, hw = 4, hh = 8, speed = t.speed, flash = 15})
-			add(balls, {x = t.x, y = t.y, dx = 0.3, dy = -1, hw = 4, hh = 8, speed = t.speed, flash = 15})
+			if it.kind == 1 then
+				-- speed reset
+				for ball in all(balls) do
+					ball.speed = 1.8
+				end
+				sfx(5)
+			elseif it.kind == 2 then
+				-- paddle x1.5, lasts until the next miss (no timer)
+				paddle_big = true
+				sfx(5)
+			elseif it.kind == 3 then
+				-- catch + launch for 15s
+				catch_timer = 450
+				sfx(5)
+			elseif it.kind == 4 then
+				-- bebetori: only affects the main (non-pink) ball, even if
+				-- split; a big paused announcement plays first, then it
+				-- pierces blocks for 15s
+				for ball in all(balls) do
+					if not ball.pink then
+						bebetori_target = ball
+					end
+				end
+				bebetori_intro_timer = 45
+				game_state = "bebetori_intro"
+				sfx(8)
+			else
+				-- classic: adds 2 pink flora at an angle; the original ball
+				-- keeps going straight and stays its normal color
+				local t = balls[1]
+				balls = {}
+				add(balls, {x = t.x, y = t.y, dx = t.dx, dy = t.dy, hw = 4, hh = 8, speed = t.speed, flash = 15, pink = false, bebetori = t.bebetori or 0})
+				local pink_l = add(balls, {x = t.x, y = t.y, hw = 4, hh = 8, speed = t.speed, flash = 15, pink = true, bebetori = 0})
+				set_dir(pink_l, -0.3, -1)
+				local pink_r = add(balls, {x = t.x, y = t.y, hw = 4, hh = 8, speed = t.speed, flash = 15, pink = true, bebetori = 0})
+				set_dir(pink_r, 0.3, -1)
+				sfx(5)
+			end
 			del(items, it)
-			sfx(5)
 		elseif it.y > 128 then
 			del(items, it)
 		end
 	end
 
-	-- remove balls that fell off the bottom
+	-- remove balls that fell off the bottom; losing the main (non-pink)
+	-- ball is always a miss, even if pink flora are still in play
+	local main_died = false
 	for ball in all(balls) do
 		if ball.y - ball.hh > 128 then
+			if not ball.pink then
+				main_died = true
+			end
 			del(balls, ball)
 		end
 	end
+	if main_died then
+		balls = {}
+	end
 
 	if #balls == 0 then
-		lives -= 1
+		if not debug_invincible then
+			lives -= 1
+		end
+		paddle_big = false
 		sfx(3)
 		if lives <= 0 then
 			game_state = "lose"
 			sfx(4)
 		else
-			add(balls, {
-				x = 64, y = 100, dx = 1, dy = -1,
+			local new_ball = add(balls, {
+				x = 64, y = 100,
 				hw = 4, hh = 8,
-				speed = 1.5 + (stage - 1) * 0.3,
-				flash = 0
+				speed = 1.8,
+				flash = 0,
+				pink = false,
+				bebetori = 0
 			})
+			set_dir(new_ball, 1, -1)
 		end
 	end
 
 	update_paddle_width()
 
-	-- clear check
+	if oneup_timer > 0 then
+		oneup_timer -= 1
+	end
+	if catch_timer > 0 then
+		catch_timer -= 1
+	end
+
+	-- clear check (unbreakable bricks never die, so they don't count)
 	local remaining = 0
 	for b in all(bricks) do
-		if b.alive then remaining += 1 end
+		if b.alive and b.breakable then remaining += 1 end
 	end
 	if remaining == 0 then
-		if stage >= 5 then
+		local pink_count = 0
+		for ball in all(balls) do
+			if ball.pink then pink_count += 1 end
+		end
+		if pink_count > 0 then
+			game_state = "bonus"
+			bonus_timer = 120
+			bonus_total = 0
+			local spacing = 16
+			local start_x = 64 - (pink_count - 1) * spacing / 2
+			local i = 0
+			for ball in all(balls) do
+				if ball.pink then
+					ball.target_x = start_x + i * spacing
+					ball.target_y = 64
+					i += 1
+				end
+			end
+		elseif stage >= 5 then
 			game_state = "win"
+			sfx(5)
 		else
 			game_state = "stage_clear"
 			clear_timer = 60
+			sfx(5)
 		end
-		sfx(5)
 	end
 end
 
 function _draw()
 	if game_state == "title" then
 		cls(4)
-		sspr(0, 16, 128, 40, 0, 22)
+		-- logo: sprites 22,23 + only x64-69 of 24 (6px, not the full 8),
+		-- then sprite 25, all at 4x size
+		sspr(48, 8, 22, 8, 4, 22, 88, 32)
+		sspr(72, 8, 8, 8, 92, 22, 32, 32)
 		print("start", 54, 88, 3)
 		print("(c)2026 citegame", 32, 120, 3)
 		return
@@ -252,128 +689,156 @@ function _draw()
 		return
 	end
 
+	if game_state == "bonus" then
+		cls(4)
+		for ball in all(balls) do
+			if ball.pink then
+				for c = 0, 15 do pal(c, 14) end
+				sspr(0, 0, 8, 16, ball.x - ball.hw, ball.y - ball.hh)
+				for c = 0, 15 do pal(c, c) end
+			end
+		end
+		if bonus_timer <= 60 then
+			print("bonus +"..bonus_total, 40, 80, 8)
+		end
+		return
+	end
+
+	if game_state == "win" then
+		-- solid yellow, no hud/bricks/paddle clutter: just the dance,
+		-- with the dance+caption as one group centered on screen
+		-- (32px sprite + 8px gap + 8px text = 48px tall, so top = (128-48)/2)
+		cls(4)
+		local flip = (dance_state == "crawl_l" or dance_state == "hold_l")
+		local sx
+		if dance_state == "crawl_r" or dance_state == "crawl_l" then
+			local pose_idx = flr(dance_phase_timer / 4) % 2
+			sx = (pose_idx == 0) and 0 or 16
+		else
+			sx = 32
+		end
+		local draw_x = (dance_state == "finale") and 64 or dance_x
+		sspr(sx, 16, 16, 16, draw_x - 16, 40, 32, 32, flip)
+		print("congratulations!", 32, 80, 3)
+
+		if dance_state == "finale" then
+			-- flicker: each flake blinks on/off on its own phase, so the
+			-- whole flurry twinkles instead of falling as solid dots
+			for p in all(confetti) do
+				if (frame_count + flr(p.phase * 20)) % 5 != 0 then
+					rectfill(p.x, p.y, p.x + 1, p.y + 1, p.c)
+				end
+			end
+		end
+		return
+	end
+
 	cls(4)
 
 	for b in all(bricks) do
 		if b.alive then
-			sspr(b.img_x, 8, 14, 6, b.x, b.y, b.w, b.h)
+			if b.breakable then
+				sspr(40, 0, 14, 6, b.x, b.y, b.w, b.h)
+			else
+				rectfill(b.x, b.y, b.x + b.w - 1, b.y + b.h - 1, 6)
+			end
 		end
 	end
 
-	sspr(8, 0, 24, 4, paddle.x, paddle.y, paddle.w, paddle.h)
+	sspr(16, 0, 24, 4, paddle.x, paddle.y, paddle.w, paddle.h)
 
 	for ball in all(balls) do
-		if ball.flash > 0 and ball.flash % 4 < 2 then
-			for c = 0, 15 do pal(c, 7) end
-			sspr(64, 0, 8, 16, ball.x - ball.hw, ball.y - ball.hh)
-			for c = 0, 15 do pal(c, c) end
+		if ball.bebetori > 0 then
+			-- bebetori: alternate sprite, blinks light blue for extra flair
+			if frame_count % 4 < 2 then
+				sspr(8, 0, 8, 16, ball.x - ball.hw, ball.y - 8)
+			else
+				for c = 0, 15 do pal(c, 12) end
+				sspr(8, 0, 8, 16, ball.x - ball.hw, ball.y - 8)
+				for c = 0, 15 do pal(c, c) end
+			end
 		else
-			sspr(64, 0, 8, 16, ball.x - ball.hw, ball.y - ball.hh)
+			local tint = nil
+			if ball.flash > 0 and ball.flash % 4 < 2 then
+				tint = 7
+			elseif ball.pink then
+				tint = 14
+			end
+			if tint then
+				for c = 0, 15 do pal(c, tint) end
+				sspr(0, 0, 8, 16, ball.x - ball.hw, ball.y - ball.hh)
+				for c = 0, 15 do pal(c, c) end
+			else
+				sspr(0, 0, 8, 16, ball.x - ball.hw, ball.y - ball.hh)
+			end
 		end
 	end
 
+	-- each item kind has its own fish sprite:
+	-- 0=classic(12) 1=speed reset(8) 2=paddle size(9) 3=catch(10)
+	-- 4=bebetori (blinks between 8 and 11)
+	local item_sprites = {[0] = 12, [1] = 8, [2] = 9, [3] = 10}
 	for it in all(items) do
-		spr(10, it.x - 4, it.y - 4)
+		if it.kind == 4 then
+			spr((frame_count % 4 < 2) and 8 or 11, it.x - 4, it.y - 4)
+		else
+			spr(item_sprites[it.kind], it.x - 4, it.y - 4)
+		end
 	end
 
 	print("score:"..score, 2, 2, 3)
 	print("stage:"..stage, 50, 2, 3)
-	for i = 1, lives do
-		spr(9, 96 + (i - 1) * 9, 2)
+	spr(7, 96, 2)
+	print("x"..lives, 106, 2, 3)
+
+	if oneup_timer > 0 then
+		print("1up!", 56, 60, 8)
 	end
 
 	if game_state == "stage_clear" then
 		print("stage "..stage.." clear!", 36, 60, 3)
 		print("press z to continue", 26, 70, 3)
-	elseif game_state == "win" then
-		print("you win!", 44, 60, 3)
-		print("press z to restart", 24, 70, 3)
 	elseif game_state == "lose" then
 		print("game over", 44, 60, 3)
 		print("press z to restart", 24, 70, 3)
+	elseif game_state == "bebetori_intro" then
+		-- "bebetori" logo sprites (4-7), drawn 2x size over the frozen scene
+		sspr(16, 8, 32, 8, 32, 56, 64, 16)
 	end
 end
 __gfx__
-00000000333333333333333333333333000000000000000000000000888888885877778588838883888888888888888888888888888888888888888888888888
-00000000333333333333333333333333000000000000000000000000888888885575757588833333888888888888888888888888888888888888888888888888
-00000000333333333333333333333333000000000000000000000000888888880000000588833333885558888888888888888888888888888888888888888888
-00000000333333333333333333333333000000000000000000000000888888880005000588833333855555858888888888888888888888888888888888888888
-00000000000000000000000000000000000000000000000000000000888888887777777788833333505d5d558888888888888888888888888888888888888888
-0000000000000000000000000000000000000000000000000000000088888888777777778888888885d5d5858888888888888888888888888888888888888888
-00000000000000000000000000000000000000000000000000000000888888887777777788888888885558888888888888888888888888888888888888888888
-00000000000000000000000000000000000000000000000000000000888888886676767688888888888888888888888888888888888888888888888888888888
-33333333333333007777777777777700777777777777770077777777777777886667676688888888888888888888888888888888888888888888888888888888
-33333333333333009999999999999900aaaaaaaaaaaaaa00bbbbbbbbbbbbbb885555555588888888888888888888888888888888888888888888888888888888
-33333333333333009999999999999900aaaaaaaaaaaaaa00bbbbbbbbbbbbbb885555555588888888888888888888888888888888888888888888888888888888
-33333333333333009999999999999900aaaaaaaaaaaaaa00bbbbbbbbbbbbbb885555555588888888888888888888888888888888888888888888888888888888
-33333333333333009999999999999900aaaaaaaaaaaaaa00bbbbbbbbbbbbbb885555555588888888888888888888888888888888888888888888888888888888
-33333333333333000000000000000000000000000000000000000000888888885555555588888888888888888888888888888888888888888888888888888888
-00000000000000000000000000000000000000000000000000000000888888885555555588888888888888888888888888888888888888888888888888888888
-00000000000000000000000000000000000000000000000000000000888888888555555888888888888888888888888888888888888888888888888888888888
-88833333333333333333333333333333333388888333333333333333333333333333333888888888888888888888833333333333333333333333333333333888
-88833333333333333333333333333333333388888333333333333333333333333333333888888888888888888888833333333333333333333333333333333888
-88833333333333333333333333333333333388888333333333333333333333333333333888888888888888888888833333333333333333333333333333333888
-88833333333333333333333333333333333388888333333333333333333333333333333888888888888888888888833333333333333333333333333333333888
-88833333333333333333333333333333333388888333333333333333333333333333333888888888888888888888833333333333333333333333333333333888
-88833333333333333333333333333333333388888333333333333333333333333333333888888888888888888888833333333333333333333333333333333888
-88833333333333333333333333333333333388888333333333333333333333333333333888888888888888888888833333333333333333333333333333333888
-88833333333333333333333333333333333388888333333333333333333333333333333888888888888888888888833333333333333333333333333333333888
-88833333333333333333333333333333333388888333333333333333333333333333333888888888888888888888833333333333333333333333333333333888
-88833333333333333333333333333333333388888333333333333333333333333333333888888888888888888888833333333333333333333333333333333888
-88833333333333333333333333333333333388888333333333333333333333333333333888888888888888888888833333333333333333333333333333333888
-88833333333333333333333333333333333388888333333333333333333333333333333888888888888888888888833333333333333333333333333333333888
-88888888888888888888833333333333333388888333333333338888888888833333333888888888888888888888888888888888888888888888888888888888
-88888888888888888888833333333333333388888333333333338888888888833333333888888888888888888888888888888888888888888888888888888888
-88888888888888888888833333333333333388888333333333338888888888833333333888888888888888888888888888888888888888888888888888888888
-88888888888888888888833333333333333388888333333333338888888888833333333888888888888888888888833333333333333333333333333333333888
-88888888888888888888833333333333333388888333333333338888888888833333333888888888888888888888833333333333333333333333333333333888
-88888888888888888888833333333333333388888333333333338888888888833333333888888888888888888888833333333333333333333333333333333888
-88888888888888888888833333333333333388888333333333338888888888833333333888888888888888888888833333333333333333333333333333333888
-88888888888888888888833333333333333388888333333333338888888888833333333888888888888888888888833333333333333333333333333333333888
-88888888888888888888833333333333333388888333333333338888888888833333333888888888888888888888833333333333333333333333333333333888
-88888888888888888888833333333333333388888333333333338888888888833333333888888888888888888888833333333333333333333333333333333888
-88888888888888888888833333333333333388888333333333338888888888833333333888888888888888888888833333333333333333333333333333333888
-88888888888888888888833333333333333388888333333333338888888888833333333888888888888888888888833333333333333333333333333333333888
-88888888888888888888833333333333333388888333333333338888888888833333333888888888888888888888888888888888888888888883333333333888
-88888888888888888888833333333333333388888333333333338888888888833333333888888888888888888888888888888888888888888883333333333888
-88888888888888888888833333333333333388888333333333338888888888833333333888333333333333333333388888888888888888888883333333333888
-88888888888888888888833333333333333388888333333333338888888888833333333888333333333333333333388888888888888888888883333333333888
-88888888888888888888833333333333333388888333333333338888888888833333333888333333333333333333388888888888888888888883333333333888
-88888888888888888888833333333333333388888333333333338888888888833333333888333333333333333333388888888888888888888883333333333888
-88888888888888888888833333333333333388888333333333338888888888833333333888333333333333333333388888888888888888888883333333333888
-88888888888333333333333333333388888888888333333333333333333333333333333888333333333333333333388888333333333333333333333333333888
-88888888888333333333333333333388888888888333333333333333333333333333333888333333333333333333388888333333333333333333333333333888
-88888888888333333333333333333388888888888333333333333333333333333333333888333333333333333333388888333333333333333333333333333888
-88888888888333333333333333333388888888888333333333333333333333333333333888333333333333333333388888333333333333333333333333333888
-88888888888333333333333333333388888888888333333333333333333333333333333888333333333333333333388888333333333333333333333888888888
-88888888888333333333333333333388888888888333333333333333333333333333333888888888888888888888888888333333333333333333333888888888
-88888888888333333333333333333388888888888333333333333333333333333333333888888888888888888888888888333333333333333333333888888888
-88888888888333333333333333333388888888888333333333333333333333333333333888888888888888888888888888333333333333333333333888888888
-88888888888333333333333333333388888888888333333333333333333333333333333888888888888888888888888888333333333333333333333888888888
-88888888888888888888888888888888888888888333333333333333333333333333333888888888888888888888888888333333333333333333333888888888
-88888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888333333333333333333333888888888
-88888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
-88888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
-88888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
-88888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
-88888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
-88888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
-88888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
-88888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
-88888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
-88888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
-88888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
-88888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
-88888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
-88888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
-88888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
-88888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
-88888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
-88888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
-88888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
-88888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
-88888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
-88888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888888
+58777785588888853333333333333333333333333333333333333300888388838888888888888888888888888888888888888888000000000000000000000000
+55757575555555553333333333333333333333333333333333333300888333338888888888888888888888888888888888888888000000000000000000000000
+000000055555555533333333333333333333333333333333333333008883333388ccc888882228888833388888eee88888111888000000000000000000000000
+00050005565556553333333333333333333333333333333333333300888333338ccccc8c82222282833333838eeeee8e81111181000000000000000000000000
+7777777755656555000000000000000000000000333333333333330088833333c0cdcdcc202d2d22303d3d33e0ededee101d1d11000000000000000000000000
+77777777565556550000000000000000000000003333333333333300888888888cdcdc8c82d2d28283d3d3838edede8e81d1d181000000000000000000000000
+777777775555555500000000000000000000000000000000000000008888888888ccc888882228888833388888eee88888111888000000000000000000000000
+66767676555555550000000000000000000000000000000000000000888888888888888888888888888888888888888888888888000000000000000000000000
+666767665555555588888c8c88888c8c8cc88888cc88cc8883333333833333338888888883333338000000000000000000000000000000000000000000000000
+555555555555555588888c8c88888c8c8cc88888cc88cc8883333333833333338888888883333338000000000000000000000000000000000000000000000000
+555555555555555588ccc88888ccc8888ccc8888cc88cc8888883333833833338888888888888888000000000000000000000000000000000000000000000000
+55555555555555558ccccc888ccccc888ccccc88cc88cc8888883333833833338888888883333338000000000000000000000000000000000000000000000000
+5555555555555555ccc8ccc8ccc8ccc88cc8ccc8888cc88888883333833833338333338883333338000000000000000000000000000000000000000000000000
+5555555555555555cc888ccccc888ccc8cc88cc8888cc88888833333833833338333388888833338000000000000000000000000000000000000000000000000
+5555555555555555c88888ccc88888cc8cc8888888cc888888333338833333338888888888333338000000000000000000000000000000000000000000000000
+85555558855555588888888888888888888888888888888888333388833333388888888888333388000000000000000000000000000000000000000000000000
+88888888888888888888888888888888888888888555888800000000000000000000000000000000000000000000000000000000000000000000000000000000
+88888888888888888888888888888888888888855555555800000000000000000000000000000000000000000000000000000000000000000000000000000000
+88888888888888888855555888888888888888556555555800000000000000000000000000000000000000000000000000000000000000000000000000000000
+88855558888888888555555558888888888888555655555800000000000000000000000000000000000000000000000000000000000000000000000000000000
+88555555555888888555555555588888888885556555665800000000000000000000000000000000000000000000000000000000000000000000000000000000
+88555555555558888555555555558888888855555555558800000000000000000000000000000000000000000000000000000000000000000000000000000000
+88556555555555888566555555555888888855555555558800000000000000000000000000000000000000000000000000000000000000000000000000000000
+88565555555555888855555555555888888555555555558800000000000000000000000000000000000000000000000000000000000000000000000000000000
+88855555555555888885555555555888888555555555588800000000000000000000000000000000000000000000000000000000000000000000000000000000
+88885555555555558888885555555888885555555555588800000000000000000000000000000000000000000000000000000000000000000000000000000000
+88888885555555558888888555555558885555555555888800000000000000000000000000000000000000000000000000000000000000000000000000000000
+88888888555555888888888555555558885555555558888800000000000000000000000000000000000000000000000000000000000000000000000000000000
+88888885555558888888888855555888885555555588888800000000000000000000000000000000000000000000000000000000000000000000000000000000
+88888885555588888888888885555888885555555888888800000000000000000000000000000000000000000000000000000000000000000000000000000000
+88888888888888888888888885558888885555558888888800000000000000000000000000000000000000000000000000000000000000000000000000000000
+88888888888888888888888888888888888555558888888800000000000000000000000000000000000000000000000000000000000000000000000000000000
 __label__
 44444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444
 44444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444
@@ -503,6 +968,7 @@ __label__
 44444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444
 44444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444
 44444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444
+
 __sfx__
 000100002d0502b0502d050330503d050290002700024000210001d0001a0001900019000190001b0001d0002000023000260002700028000280002800028000280002600024000210001e0001a0000000000000
 00010000000001905017050160501505014050140501505016050190501c0501f050220502505027050270502805028050280502805027050260502505023050210501f0501d0501b05019050160501305011050
@@ -510,6 +976,12 @@ __sfx__
 0001000021350213502135021350293500f600136001160009350093500935008350083500735006000000000000014350153501435013350113501035010350180000f000000000400000000000000000000000
 081000001a0500e0500e05014050140501405017050170502005021050200502105020050210502005021050050000500007000080000a0000c0000d0000f0001100013000140001600018000180000000000000
 0106000024550285502b550305502b550305503455037550375503755037550375550000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+01080000183501c350213501d3501f35021350243501a3001c3001d3001f30021300233002430018300263002b200312003810037100351003510035100361003810029100000002c1002e100301003410000000
+050a00002415018100281502b1502d150000002f15000000301500000000000000001c1561a1561c1561a15600000000000000000000000000000000000000000000000000000000000000000000000000000000
+140400001905016050140501b0501e05019050190501f0501b05024050200501f0502b05023050240502c05028050260502805023050310502f050330503e050340003300036000380003a000390003500037000
+310100003f0503f0503f0503f0503f0503f0503f05000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+00400008180401c0401f040240401f0401c0401804013040000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+011000001c0601f060240602b0602b0602b0600000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 __music__
-04 40424344
+03 0a404040
 
