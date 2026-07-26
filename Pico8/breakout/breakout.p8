@@ -10,61 +10,80 @@ function _init()
 	palt(0, false)  -- color 0 (black) no longer transparent
 	palt(8, true)   -- color 8 (red) is transparent instead
 	frame_count = 0
-	game_state = "title" -- title / stage_door / play / stage_clear / win / lose
+	game_state = "title" -- title / stage_door / play / clear_freeze / bonus / win / lose
+	shake_timer = 0
+	particles = {}
+	-- persistent high score: cartdata is a real file on desktop pico-8,
+	-- and backed by browser localstorage automatically in web exports
+	cartdata("citegame_flora_breakout")
+	high_score = dget(0)
 end
 
 confetti_colors = {8, 9, 10, 11, 12, 14, 15} -- bright colors only, no black/bg/dark shades
+-- lowercase: pico-8's font draws lowercase letters 5px tall vs uppercase's
+-- cramped 4px, so lowercase reads much better for these pop-up banners
+item_names = {[0] = "split", [1] = "speed reset", [2] = "wide", [3] = "catch"}
+-- matches each item's fish sprite color (12=split/blue, 8=speed/lightblue,
+-- 9=wide/purple, 10=catch/green - see item_sprites in _draw)
+item_bar_colors = {[0] = 1, [1] = 12, [2] = 2, [3] = 3}
 
 -- x = breakable brick, # = unbreakable brick, . = empty
 -- difficulty comes entirely from these layouts, not from speed/paddle size
 -- (smaller bricks + a 12-wide grid give more room for corridors/chambers)
 stage_layouts = {
 	{
+		-- open-back intro: ceiling side is wide open, light breakable
+		-- cluster near the paddle, no walls yet (that's stage 3's trick)
+		"............",
+		"............",
+		"............",
+		"............",
+		"x.x.x..x.x.x",
 		"xxxxxxxxxxxx",
-		"xxx.xxxx.xxx",
-		"xxxxxxxxxxxx",
-		"xx.xxxxxx.xx",
-		".xxxxxxxxxx."
+		"x.x.x..x.x.x"
 	},
 	{
-		-- only the front (top) row has concrete blocks, pushed out to
-		-- the edges so they don't squeeze the middle
-		"xxxxxxxxxxxx",
-		"x#xxxxxxxx#x",
-		"xxxxxxxxxxxx",
-		"xxx.xxxx.xxx",
-		"xxxxxxxxxxxx",
-		"xxxxxxxxxxxx"
+		-- a mirrored pair of concrete pillars up top
+		"x#x.x..x.x#x",
+		"x.x.x..x.x.x",
+		".x.x.xx.x.x.",
+		"x.x.x..x.x.x",
+		".x.x.xx.x.x."
 	},
 	{
-		-- corridor along the left edge; sneak the ball down alongside
-		-- the concrete wall, then it bursts into the chamber below
-		"...xxxxxxxxx",
-		"...#xxxxxxxx",
-		"...#xxxxxxxx",
-		"...#xxxxxxxx",
-		"xxxxxxxxxxxx",
-		"xxxxxxxxxxxx",
-		"xxxxxxxxxxxx"
+		-- open back again; this time only the very front line (closest
+		-- to the paddle) has any concrete in it, just 4 mirrored studs
+		"............",
+		"............",
+		"............",
+		"............",
+		"x.x.x..x.x.x",
+		".x.x.xx.x.x.",
+		"xx#x#xx#x#xx"
 	},
 	{
-		"#xxxxxxxxxx#",
-		"x.x.x.x.x.x.",
-		".x.x.x.x.x.x",
-		"x.x.x.x.x.x.",
-		"#xxxxxxxxxx#",
-		"xx#xxxxxx#xx"
+		-- symmetric top-and-bottom lattice, concrete corners
+		"#x.x.xx.x.x#",
+		".x.x.xx.x.x.",
+		"x.x.x..x.x.x",
+		".x.x.xx.x.x.",
+		"#x.x.xx.x.x#",
+		".x#.x..x.#x."
 	},
 	{
-		-- two parallel corridors this time, into a wider chamber
-		"xxxxxxxxxxxx",
+		-- two mirrored corridors into a wider chamber, pushed 3 rows
+		-- down from the ceiling
+		"............",
+		"............",
+		"............",
+		"x.x.x..x.x.x",
 		"x#x#....#x#x",
 		"x#x#....#x#x",
 		"xx.#....#.xx",
-		"xx..xxxx..xx",
-		"xxxxxxxxxxxx",
-		"xxxxxxxxxxxx",
-		"x#xxxxxxxx#x"
+		"xx..x..x..xx",
+		"x.x.x..x.x.x",
+		".x.x.xx.x.x.",
+		"x#x.x..x.x#x"
 	}
 }
 
@@ -106,10 +125,16 @@ function new_stage()
 	set_dir(first_ball, 1, -1)
 
 	items = {}
+	particles = {} -- clear leftover break-chunks from the previous stage's clear celebration
 
 	catch_timer = 0
 	bebetori_intro_timer = 0
 	bebetori_target = nil
+	oneup_timer = 0 -- don't let a 1up caught right at a stage's last brick bleed its banner into the next stage
+	shake_timer = 0
+	paddle_big = false -- likewise: don't carry a still-active paddle-size effect into the next stage
+	item_banner_timer = 0
+	bonus_scored = false
 
 	bricks = {}
 	local brick_w = 9
@@ -155,6 +180,28 @@ function new_stage()
 		end
 		del(breakable_list, br)
 	end
+end
+
+-- debug keys require 3 taps within half a second, so an accidental single
+-- press of a debug button during real play doesn't do anything
+debug_taps = {}
+function debug_triple_tap(name)
+	local t = debug_taps[name]
+	if not t then
+		t = {count = 0, frame = -999}
+		debug_taps[name] = t
+	end
+	if frame_count - t.frame <= 30 then
+		t.count += 1
+	else
+		t.count = 1
+	end
+	t.frame = frame_count
+	if t.count >= 3 then
+		t.count = 0
+		return true
+	end
+	return false
 end
 
 -- sets a ball's direction from a raw (dx,dy) vector, normalized to length
@@ -210,12 +257,58 @@ function _update()
 		return
 	end
 
-	if game_state == "stage_clear" then
-		clear_timer -= 1
-		if clear_timer <= 0 or btnp(4) then
-			stage += 1
-			game_state = "stage_door"
-			door_timer = 45
+	if game_state == "clear_freeze" then
+		clear_freeze_timer -= 1
+
+		-- let particles keep falling/fading naturally while everything
+		-- else (paddle, flora, bricks) just holds still where it was the
+		-- instant the last block broke
+		for p in all(particles) do
+			p.x += p.dx
+			p.y += p.dy
+			p.dy += 0.15
+			p.life -= 1
+			if p.life <= 0 then
+				del(particles, p)
+			end
+		end
+
+		if clear_freeze_timer <= 0 then
+			local pink_count = 0
+			for ball in all(balls) do
+				if ball.pink then pink_count += 1 end
+			end
+			if pink_count > 0 then
+				game_state = "bonus"
+				bonus_timer = 150
+				bonus_total = 0
+				bonus_scored = false
+				local spacing = 16
+				local start_x = 64 - (pink_count - 1) * spacing / 2
+				local i = 0
+				for ball in all(balls) do
+					if ball.pink then
+						ball.target_x = start_x + i * spacing
+						ball.target_y = 64
+						i += 1
+					end
+				end
+			elseif stage >= 5 then
+				game_state = "win"
+				win_timer = 0
+				dance_state = "crawl_r"
+				dance_x = 24
+				dance_phase_timer = 0
+				dance_trips = 0
+				music(0)
+			else
+				-- the clear announcement already had its full moment
+				-- during clear_freeze; go straight on to the next stage,
+				-- no second "stage clear" pause
+				stage += 1
+				game_state = "stage_door"
+				door_timer = 45
+			end
 		end
 		return
 	end
@@ -233,17 +326,20 @@ function _update()
 	if game_state == "bonus" then
 		bonus_timer -= 1
 
-		-- brief pause before the flora start sliding to the center
-		if bonus_timer <= 90 then
-			for ball in all(balls) do
-				if ball.pink then
-					ball.x += (ball.target_x - ball.x) * 0.2
-					ball.y += (ball.target_y - ball.y) * 0.2
-				end
+		-- the "stage x clear!" moment already happened during clear_freeze;
+		-- this phase is just the pink flora gathering in, then the point
+		-- tally landing
+		for ball in all(balls) do
+			if ball.pink then
+				ball.x += (ball.target_x - ball.x) * 0.2
+				ball.y += (ball.target_y - ball.y) * 0.2
 			end
 		end
 
-		if bonus_timer == 60 then
+		if not bonus_scored and bonus_timer <= 90 then
+			-- <= instead of == so this can never be skipped by an
+			-- off-by-one/desync in bonus_timer's starting value
+			bonus_scored = true
 			for ball in all(balls) do
 				if ball.pink then bonus_total += 200 end
 			end
@@ -259,12 +355,13 @@ function _update()
 				dance_x = 24
 				dance_phase_timer = 0
 				dance_trips = 0
-				sfx(5)
 				music(0)
 			else
-				game_state = "stage_clear"
-				clear_timer = 60
-				sfx(5)
+				-- straight to the next stage; no extra "stage clear"
+				-- pause after the bonus tally lands
+				stage += 1
+				game_state = "stage_door"
+				door_timer = 45
 			end
 		end
 		return
@@ -371,8 +468,8 @@ function _update()
 		end
 	end
 
-	-- debug: x button instantly clears the stage
-	if btnp(5) then
+	-- debug: x button (3 taps) instantly clears the stage
+	if btnp(5) and debug_triple_tap("clear") then
 		for b in all(bricks) do
 			if b.breakable then
 				b.alive = false
@@ -380,15 +477,15 @@ function _update()
 		end
 	end
 
-	-- debug: down arrow toggles "no life lost on miss" (up/down aren't
-	-- used for anything else in this game)
-	if btnp(3) then
+	-- debug: down arrow (3 taps) toggles "no life lost on miss" (up/down
+	-- aren't used for anything else in this game)
+	if btnp(3) and debug_triple_tap("inv") then
 		debug_invincible = not debug_invincible
 	end
 
-	-- debug: up arrow instantly jumps to the win/dance screen, to check
-	-- the victory dance without clearing all 5 stages first
-	if btnp(2) then
+	-- debug: up arrow (3 taps) instantly jumps to the win/dance screen,
+	-- to check the victory dance without clearing all 5 stages first
+	if btnp(2) and debug_triple_tap("win") then
 		game_state = "win"
 		win_timer = 0
 		dance_state = "crawl_r"
@@ -397,6 +494,14 @@ function _update()
 		dance_trips = 0
 		sfx(5)
 		music(0)
+	end
+
+	-- true while any split (pink) flora is active; used to keep the
+	-- paddle-size item from dropping during a split (it'd be pointless,
+	-- split already forces the paddle to its widest 3x)
+	local split_active = false
+	for b2 in all(balls) do
+		if b2.pink then split_active = true end
 	end
 
 	-- balls: movement + collisions
@@ -521,20 +626,66 @@ function _update()
 					if b.breakable or pierce then
 						b.alive = false
 						score += 10
-						sfx(0)
+						if pierce and not b.breakable then
+							sfx(12) -- bebetori punching through a normally-indestructible block: a punchier crunch
+						else
+							sfx(0)
+						end
 						while score >= next_1up do
 							lives += 1
 							next_1up += 1000
 							oneup_timer = 60
 							sfx(6)
 						end
+						-- item drop rules: speed-reset (1) only worth it once
+						-- speed has actually built up (80% of the 4.0 max);
+						-- paddle-size (2) is pointless during a split (paddle
+						-- is already forced to its widest 3x); and never let
+						-- two of the same kind be on screen/falling at once
 						if b.has_item then
-							add(items, {x = b.x + b.w / 2, y = b.y + b.h / 2, kind = b.item_kind})
+							local kind = b.item_kind
+							local drop_ok = true
+							if kind == 1 and ball.speed < 3.2 then drop_ok = false end
+							if kind == 2 and split_active then drop_ok = false end
+							for it in all(items) do
+								if it.kind == kind then drop_ok = false end
+							end
+							if drop_ok then
+								add(items, {x = b.x + b.w / 2, y = b.y + b.h / 2, kind = kind})
+							end
+						end
+
+						-- juice: brief screen shake + a burst of brick-colored
+						-- chunks scattering from where it broke
+						shake_timer = 7
+						for i = 1, 6 do
+							add(particles, {
+								x = b.x + b.w / 2,
+								y = b.y + b.h / 2,
+								dx = (rnd(2) - 1) * 1.5,
+								dy = (rnd(2) - 1) * 1.5 - 0.5,
+								life = 15 + flr(rnd(10)),
+								c = (rnd(1) < 0.25) and 11 or 3
+							})
 						end
 					end
 					break
 				end
 			end
+		end
+	end
+
+	-- (shake_timer itself decays in _draw, right after it's used, so the
+	-- full duration is actually visible instead of losing a frame here)
+
+	-- brick-break particles: simple gravity-arc chunks that fade out
+	for p in all(particles) do
+		p.x += p.dx
+		p.y += p.dy
+		p.dy += 0.15
+		p.life -= 1
+		if p.life <= 0 then
+			del(particles, p)
 		end
 	end
 
@@ -546,6 +697,13 @@ function _update()
 		and it.y - 4 <= paddle.y + paddle.h
 		and it.x + 4 >= paddle.x
 		and it.x - 4 <= paddle.x + paddle.w then
+			-- pop-up name banner for every kind except bebetori, which
+			-- already gets its own full-screen announcement
+			if it.kind != 4 then
+				item_banner_timer = 50
+				item_banner_kind = it.kind
+			end
+
 			if it.kind == 1 then
 				-- speed reset
 				for ball in all(balls) do
@@ -574,10 +732,13 @@ function _update()
 				sfx(8)
 			else
 				-- classic: adds 2 pink flora at an angle; the original ball
-				-- keeps going straight and stays its normal color
+				-- keeps going straight and stays its normal color. if it
+				-- was mid-catch (stuck to the paddle, speed zeroed out),
+				-- carry that over too, or it'd end up neither stuck nor
+				-- moving - frozen in place with no way to launch it
 				local t = balls[1]
 				balls = {}
-				add(balls, {x = t.x, y = t.y, dx = t.dx, dy = t.dy, hw = 4, hh = 8, speed = t.speed, flash = 15, pink = false, bebetori = t.bebetori or 0})
+				add(balls, {x = t.x, y = t.y, dx = t.dx, dy = t.dy, hw = 4, hh = 8, speed = t.speed, flash = 15, pink = false, bebetori = t.bebetori or 0, stuck = t.stuck, stick_offset = t.stick_offset})
 				local pink_l = add(balls, {x = t.x, y = t.y, hw = 4, hh = 8, speed = t.speed, flash = 15, pink = true, bebetori = 0})
 				set_dir(pink_l, -0.3, -1)
 				local pink_r = add(balls, {x = t.x, y = t.y, hw = 4, hh = 8, speed = t.speed, flash = 15, pink = true, bebetori = 0})
@@ -629,11 +790,19 @@ function _update()
 
 	update_paddle_width()
 
+	if score > high_score then
+		high_score = score
+		dset(0, high_score)
+	end
+
 	if oneup_timer > 0 then
 		oneup_timer -= 1
 	end
 	if catch_timer > 0 then
 		catch_timer -= 1
+	end
+	if item_banner_timer > 0 then
+		item_banner_timer -= 1
 	end
 
 	-- clear check (unbreakable bricks never die, so they don't count)
@@ -642,44 +811,33 @@ function _update()
 		if b.alive and b.breakable then remaining += 1 end
 	end
 	if remaining == 0 then
-		local pink_count = 0
-		for ball in all(balls) do
-			if ball.pink then pink_count += 1 end
-		end
-		if pink_count > 0 then
-			game_state = "bonus"
-			bonus_timer = 120
-			bonus_total = 0
-			local spacing = 16
-			local start_x = 64 - (pink_count - 1) * spacing / 2
-			local i = 0
-			for ball in all(balls) do
-				if ball.pink then
-					ball.target_x = start_x + i * spacing
-					ball.target_y = 64
-					i += 1
-				end
-			end
-		elseif stage >= 5 then
-			game_state = "win"
-			sfx(5)
-		else
-			game_state = "stage_clear"
-			clear_timer = 60
-			sfx(5)
-		end
+		-- freeze the scene right where it is (paddle, flora, whatever's
+		-- left of the particles) and announce the clear over the top of
+		-- it; the bonus-gather / win / next-stage branch happens once
+		-- clear_freeze_timer runs out, see the clear_freeze state above
+		game_state = "clear_freeze"
+		clear_freeze_timer = 60
+		sfx(5)
 	end
 end
 
 function _draw()
+	camera(0, 0) -- always start unshaken; the play state re-applies shake below
+
 	if game_state == "title" then
 		cls(4)
 		-- logo: sprites 22,23 + only x64-69 of 24 (6px, not the full 8),
 		-- then sprite 25, all at 4x size
 		sspr(48, 8, 22, 8, 4, 22, 88, 32)
 		sspr(72, 8, 8, 8, 92, 22, 32, 32)
-		print("start", 54, 88, 3)
-		print("(c)2026 citegame", 32, 120, 3)
+		print("start", 54, 84, 3)
+		local hs_label = "high score:"
+		local hs_num = ""..high_score
+		local hs_x = 64 - (#hs_label + #hs_num) * 2
+		print(hs_label, hs_x, 96, 3)
+		local blink_col = (frame_count % 24 < 12) and 14 or 12
+		print(hs_num, hs_x + #hs_label * 4, 96, blink_col)
+		print("(c)2026 citegame", 32, 116, 3)
 		return
 	end
 
@@ -698,8 +856,9 @@ function _draw()
 				for c = 0, 15 do pal(c, c) end
 			end
 		end
-		if bonus_timer <= 60 then
-			print("bonus +"..bonus_total, 40, 80, 8)
+		if bonus_timer <= 90 then
+			local blink_col = (frame_count % 4 < 2) and 14 or 12
+			print("bonus +"..bonus_total, 40, 80, blink_col)
 		end
 		return
 	end
@@ -735,6 +894,21 @@ function _draw()
 
 	cls(4)
 
+	-- screen shake: a smoothly-varying (not resampled-per-frame) fractional
+	-- offset. pico-8 still floors to a whole pixel at draw time, but since
+	-- the underlying value glides continuously along a decaying sine, the
+	-- moments it ticks between 0px and 1px follow a smooth curve instead
+	-- of jumping to a fresh random spot every frame - reads as a much
+	-- finer tremble than the old per-frame-random version, closer to
+	-- "less than 1px" than true random jitter can ever look
+	if shake_timer > 0 then
+		local envelope = shake_timer / 7
+		camera(sin(shake_timer * 0.3) * 0.9 * envelope, cos(shake_timer * 0.3) * 0.9 * envelope)
+		shake_timer -= 1
+	else
+		camera(0, 0)
+	end
+
 	for b in all(bricks) do
 		if b.alive then
 			if b.breakable then
@@ -745,8 +919,13 @@ function _draw()
 		end
 	end
 
+	for p in all(particles) do
+		pset(p.x, p.y, p.c)
+	end
+
 	sspr(16, 0, 24, 4, paddle.x, paddle.y, paddle.w, paddle.h)
 
+	local launch_prompt_shown = false
 	for ball in all(balls) do
 		if ball.bebetori > 0 then
 			-- bebetori: alternate sprite, blinks light blue for extra flair
@@ -772,6 +951,23 @@ function _draw()
 				sspr(0, 0, 8, 16, ball.x - ball.hw, ball.y - ball.hh)
 			end
 		end
+
+		if ball.stuck and not launch_prompt_shown then
+			-- only one prompt even if several flora are stuck at once
+			-- (e.g. split + catch together); follows this flora's x,
+			-- clamped to stay fully on screen so it snaps to the other
+			-- side the instant there's no longer room to stay centered
+			launch_prompt_shown = true
+			local msg_w = 16 * 4 -- "press o: launch!" length, kept as one unit for clamping
+			local tx = mid(0, ball.x - msg_w / 2, 128 - msg_w)
+			local ty = ball.y - ball.hh - 10
+			-- the font's "o" glyph reads as a small square at this size,
+			-- so draw a real circle in its place instead (letting it
+			-- poke slightly above/below the text line is fine here)
+			print("press ", tx, ty, 3)
+			circ(tx + 6 * 4 + 2, ty + 2, 3, 3)
+			print(": launch!", tx + 7 * 4, ty, 3)
+		end
 	end
 
 	-- each item kind has its own fish sprite:
@@ -792,18 +988,70 @@ function _draw()
 	print("x"..lives, 106, 2, 3)
 
 	if oneup_timer > 0 then
-		print("1up!", 56, 60, 8)
+		local blink_col = (frame_count % 4 < 2) and 14 or 12
+		print("1up!", 56, 60, blink_col)
 	end
 
-	if game_state == "stage_clear" then
-		print("stage "..stage.." clear!", 36, 60, 3)
-		print("press z to continue", 26, 70, 3)
+	-- item-get banner: a horizontal bar punches in (0 -> full thickness),
+	-- then the item's name quickly eases in from the left and settles
+	-- dead center, holds a moment, then the bar itself shrinks away
+	if item_banner_timer > 0 then
+		local t = 50 - item_banner_timer
+		local line_h
+		if t < 6 then
+			local p = t / 6
+			line_h = flr((1 - (1 - p) * (1 - p)) * 9)
+		elseif t < 40 then
+			line_h = 9
+		else
+			local p = (t - 40) / 10
+			line_h = flr((1 - p * p) * 9)
+		end
+		if line_h > 0 then
+			rectfill(0, 64 - line_h / 2, 127, 64 + line_h / 2 - 1, item_bar_colors[item_banner_kind])
+		end
+		if t >= 3 and t < 40 then
+			local msg = item_names[item_banner_kind]
+			local msg_w = #msg * 4
+			local target_x = 64 - msg_w / 2
+			local start_x = -msg_w
+			local p = min(1, max(0, (t - 3) / 10))
+			local eased = 1 - (1 - p) * (1 - p) * (1 - p)
+			print(msg, start_x + (target_x - start_x) * eased, 61, 7)
+		end
+	end
+
+	if game_state == "clear_freeze" then
+		-- everything above (bricks, paddle, flora, fading particles) is
+		-- the real play scene, just frozen; this is only the text on top
+		local msg = "stage "..stage.." clear!"
+		print(msg, 64 - #msg * 2, 60, 3)
 	elseif game_state == "lose" then
 		print("game over", 44, 60, 3)
-		print("press z to restart", 24, 70, 3)
+		-- same circle-instead-of-"o" trick as the catch launch prompt
+		print("press ", 24, 70, 3)
+		circ(24 + 6 * 4 + 2, 72, 3, 3)
+		print(" to restart", 24 + 7 * 4, 70, 3)
 	elseif game_state == "bebetori_intro" then
-		-- "bebetori" logo sprites (4-7), drawn 2x size over the frozen scene
+		-- "bebetori" logo sprites (4-7), drawn 2x size over the frozen
+		-- scene, blinking cyan/pink like the bebetori ball itself
+		local blink_col = (frame_count % 4 < 2) and 12 or 14
+		for c = 0, 15 do pal(c, blink_col) end
 		sspr(16, 8, 32, 8, 32, 56, 64, 16)
+		for c = 0, 15 do pal(c, c) end
+
+		-- kirakira sparkle: a handful of fixed points around the logo,
+		-- each twinkling on its own offbeat phase in the same two colors
+		local sparkle_pts = {
+			{-6, -4}, {10, -6}, {24, 4}, {40, -8}, {56, 2}, {68, -4},
+			{70, 10}, {54, 14}, {30, 16}, {8, 12}, {-4, 6}
+		}
+		for i, pt in ipairs(sparkle_pts) do
+			if (frame_count + i * 3) % 10 < 3 then
+				local col = ((frame_count + i) % 8 < 4) and 12 or 14
+				pset(32 + pt[1], 56 + pt[2], col)
+			end
+		end
 	end
 end
 __gfx__
@@ -970,7 +1218,7 @@ __label__
 44444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444
 
 __sfx__
-000100002d0502b0502d050330503d050290002700024000210001d0001a0001900019000190001b0001d0002000023000260002700028000280002800028000280002600024000210001e0001a0000000000000
+000200002d0502b0502d050330503d050290002460023600226001f6001b6001900019000190001b0001d0002000023000260002700028000280002800028000280002600024000210001e0001a0000000000000
 00010000000001905017050160501505014050140501505016050190501c0501f050220502505027050270502805028050280502805027050260502505023050210501f0501d0501b05019050160501305011050
 00080000007500000000000000000000000000000000000000000000002e0002d000000002d0002d0002c0002c0002c0000000000000000000000000000000000000000000000000000000000000000000000000
 0001000021350213502135021350293500f600136001160009350093500935008350083500735006000000000000014350153501435013350113501035010350180000f000000000400000000000000000000000
@@ -982,6 +1230,7 @@ __sfx__
 310100003f0503f0503f0503f0503f0503f0503f05000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 00400008180401c0401f040240401f0401c0401804013040000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 011000001c0601f060240602b0602b0602b0600000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+310200002f0602d0602f060350603f06500000000001f650206501e6501e650000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 __music__
 03 0a404040
 
