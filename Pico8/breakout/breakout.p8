@@ -21,6 +21,7 @@ function _init()
 	debug_combo_prev = false
 	stage5_entrance_offset = 0
 	stage5_entrance_wait = 0
+	bebetori_bg_fade = 0
 end
 
 confetti_colors = {8, 9, 10, 11, 12, 14, 15} -- bright colors only, no black/bg/dark shades
@@ -30,6 +31,13 @@ item_names = {[0] = "split", [1] = "speed reset", [2] = "wide", [3] = "catch"}
 -- matches each item's fish sprite color (12=split/blue, 8=speed/lightblue,
 -- 9=wide/purple, 10=catch/green - see item_sprites in _draw)
 item_bar_colors = {[0] = 1, [1] = 12, [2] = 2, [3] = 3}
+-- 17-step dissolve: a 4x4 bayer-matrix dither, threshold from 0 (all
+-- background) to 16 (all black), used to fade the bg to black and back
+-- during bebetori instead of a hard cut
+dissolve_patterns = {
+	0x0000, 0x8000, 0x8020, 0xa020, 0xa0a0, 0xa4a0, 0xa4a1, 0xa5a1, 0xa5a5,
+	0xe5a5, 0xe5b5, 0xf5b5, 0xf5f5, 0xfdf5, 0xfdf7, 0xfff7, 0xffff
+}
 
 -- x = breakable brick, # = unbreakable brick, . = empty
 -- difficulty comes entirely from these layouts, not from speed/paddle size
@@ -57,8 +65,8 @@ stage_layouts = {
 		"x..x....x..x",
 		"x..x....x..x",
 		"x..x....x..x",
-		"x..x....x..x",
-		"#..#....#..#"
+		"#..x....x..#",
+		"...#....#..."
 	},
 	{
 		"............",
@@ -158,6 +166,7 @@ function new_stage()
 	paddle_big_timer = 0
 	item_banner_timer = 0
 	bonus_scored = false
+	bebetori_bg_fade = 0
 
 	-- stage 5 only: 5s of nothing (ball just bounces in the empty room),
 	-- then the whole brick block slides in from off-screen right over 8s
@@ -457,9 +466,9 @@ function _update()
 		return
 	end
 
-	-- debug menu: hold o+up together to open (pauses the game), same
+	-- debug menu: hold z+x+up together to open (pauses the game), same
 	-- combo again to close and apply the chosen stage/lives
-	local debug_combo_now = btn(4) and btn(2)
+	local debug_combo_now = btn(4) and btn(5) and btn(2)
 	if debug_combo_now and not debug_combo_prev then
 		debug_menu_open = not debug_menu_open
 		if debug_menu_open then
@@ -840,6 +849,18 @@ function _update()
 		item_banner_timer -= 1
 	end
 
+	-- bebetori background dissolve: ease toward black while it's active,
+	-- back toward the normal bg once it ends (1 dither step/frame)
+	local bebetori_active = false
+	for ball in all(balls) do
+		if ball.bebetori > 0 then bebetori_active = true end
+	end
+	if bebetori_active then
+		bebetori_bg_fade = min(16, bebetori_bg_fade + 1)
+	else
+		bebetori_bg_fade = max(0, bebetori_bg_fade - 1)
+	end
+
 	-- clear check (unbreakable bricks never die, so they don't count)
 	local remaining = 0
 	for b in all(bricks) do
@@ -931,7 +952,17 @@ function _draw()
 		return
 	end
 
-	cls(4)
+	-- bebetori dissolve: fade the whole background to black and back
+	-- using a dithered fill instead of a hard color swap
+	if bebetori_bg_fade <= 0 then
+		cls(4)
+	elseif bebetori_bg_fade >= 16 then
+		cls(0)
+	else
+		fillp(dissolve_patterns[bebetori_bg_fade + 1])
+		rectfill(0, 0, 127, 127, 4) -- low nibble=bg for pattern-0px, high nibble (0=black) for pattern-1px
+		fillp(0)
+	end
 
 	-- screen shake: a smoothly-varying (not resampled-per-frame) fractional
 	-- offset. pico-8 still floors to a whole pixel at draw time, but since
