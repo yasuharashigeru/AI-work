@@ -906,6 +906,13 @@ function _draw()
 		return
 	end
 
+	if game_state == "lose" then
+		cls(0)
+		local msg = "game over"
+		print(msg, 64 - #msg * 2, 60, 7)
+		return
+	end
+
 	if game_state == "bonus" then
 		cls(4)
 		for ball in all(balls) do
@@ -1106,12 +1113,6 @@ function _draw()
 		-- the real play scene, just frozen; this is only the text on top
 		local msg = "stage "..stage.." clear!"
 		print(msg, 64 - #msg * 2, 60, 3)
-	elseif game_state == "lose" then
-		print("game over", 44, 60, 3)
-		-- same circle-instead-of-"o" trick as the catch launch prompt
-		print("press ", 24, 70, 3)
-		circ(24 + 6 * 4 + 2, 72, 3, 3)
-		print(" to restart", 24 + 7 * 4, 70, 3)
 	elseif game_state == "bebetori_intro" then
 		-- "bebetori" logo sprites (4-7), drawn 2x size over the frozen
 		-- scene, blinking cyan/pink like the bebetori ball itself
