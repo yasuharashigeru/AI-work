@@ -17,6 +17,10 @@ function _init()
 	-- and backed by browser localstorage automatically in web exports
 	cartdata("citegame_flora_breakout")
 	high_score = dget(0)
+	debug_menu_open = false
+	debug_combo_prev = false
+	stage5_entrance_offset = 0
+	stage5_entrance_wait = 0
 end
 
 confetti_colors = {8, 9, 10, 11, 12, 14, 15} -- bright colors only, no black/bg/dark shades
@@ -38,52 +42,71 @@ stage_layouts = {
 		"............",
 		"............",
 		"............",
-		"x.x.x..x.x.x",
+		".xxxxxxxxxx.",
 		"xxxxxxxxxxxx",
-		"x.x.x..x.x.x"
+		"..x.xxxx.x.."
 	},
 	{
-		-- a mirrored pair of concrete pillars up top
-		"x#x.x..x.x#x",
-		"x.x.x..x.x.x",
-		".x.x.xx.x.x.",
-		"x.x.x..x.x.x",
-		".x.x.xx.x.x."
+		"............",
+		"............",
+		"xxxxxxxxxxxx",
+		"xxxxxxxxxxxx",
+		"............",
+		"............",
+		"x..x....x..x",
+		"x..x....x..x",
+		"x..x....x..x",
+		"x..x....x..x",
+		"x..x....x..x",
+		"#..#....#..#"
 	},
 	{
-		-- open back again; this time only the very front line (closest
-		-- to the paddle) has any concrete in it, just 4 mirrored studs
 		"............",
 		"............",
 		"............",
 		"............",
 		"x.x.x..x.x.x",
 		".x.x.xx.x.x.",
-		"xx#x#xx#x#xx"
+		"xx#x#xx#x#xx",
+		"............",
+		"............",
+		"............",
+		"............",
+		"#x...x#...x#"
 	},
 	{
-		-- symmetric top-and-bottom lattice, concrete corners
-		"#x.x.xx.x.x#",
-		".x.x.xx.x.x.",
-		"x.x.x..x.x.x",
-		".x.x.xx.x.x.",
-		"#x.x.xx.x.x#",
-		".x#.x..x.#x."
+		"............",
+		"xx..xx..xx..",
+		"xx..xx..xx..",
+		"............",
+		"..##..##..##",
+		"..xx..xx..xx",
+		"............",
+		"xx..xx..xx..",
+		"xx..xx..xx..",
+		"............",
+		"..x#..x#..x#",
+		"..x#..x#..x#"
 	},
 	{
-		-- two mirrored corridors into a wider chamber, pushed 3 rows
-		-- down from the ceiling
-		"............",
-		"............",
-		"............",
-		"x.x.x..x.x.x",
-		"x#x#....#x#x",
-		"x#x#....#x#x",
-		"xx.#....#.xx",
-		"xx..x..x..xx",
-		"x.x.x..x.x.x",
-		".x.x.xx.x.x.",
-		"x#x.x..x.x#x"
+		"...x....x...",
+		"...xxxxxx...",
+		"...xxxxxx...",
+		"..###xx###..",
+		"...xxxxxx...",
+		"..###xx###..",
+		"...xxxxxx...",
+		"...xxxxxx...",
+		"...xxxxxx...",
+		"...xxxxxx...",
+		"...xxxxxx...",
+		"...xxxxxx...",
+		"...xxxxxx...",
+		"...xxxxxx...",
+		"...xxxxxx...",
+		"...xxxxxx...",
+		"....xxxx....",
+		".....xx....."
 	}
 }
 
@@ -94,8 +117,7 @@ function start_game()
 	next_1up = 1000
 	oneup_timer = 0
 	frame_count = 0
-	paddle_big = false -- paddle-size item: no timer, lasts until a miss
-	debug_invincible = false -- debug: down arrow toggles no-life-loss
+	paddle_big = false -- paddle-size item: 30s or until a miss, whichever's first
 	game_state = "stage_door"
 	door_timer = 45
 end
@@ -133,8 +155,18 @@ function new_stage()
 	oneup_timer = 0 -- don't let a 1up caught right at a stage's last brick bleed its banner into the next stage
 	shake_timer = 0
 	paddle_big = false -- likewise: don't carry a still-active paddle-size effect into the next stage
+	paddle_big_timer = 0
 	item_banner_timer = 0
 	bonus_scored = false
+
+	-- stage 5 only: 5s of nothing (ball just bounces in the empty room),
+	-- then the whole brick block slides in from off-screen right over 8s
+	-- to an ominous low melody. entrance_x is each brick's true resting
+	-- x; b.x (the actual collision coordinate) is offset from it and
+	-- eased toward 0 during the slide, so the ball can clip a brick
+	-- mid-slide, before it's "arrived"
+	stage5_entrance_offset = (stage == 5) and 150 or 0
+	stage5_entrance_wait = (stage == 5) and 150 or 0
 
 	bricks = {}
 	local brick_w = 9
@@ -145,8 +177,10 @@ function new_stage()
 		for col = 1, #rowstr do
 			local ch = sub(rowstr, col, col)
 			if ch != "." then
+				local ex = (col - 1) * (brick_w + 1) + 4
 				add(bricks, {
-					x = (col - 1) * (brick_w + 1) + 4,
+					x = ex + stage5_entrance_offset,
+					entrance_x = ex,
 					y = (row - 1) * (brick_h + 1) + 8,
 					w = brick_w,
 					h = brick_h,
@@ -182,28 +216,6 @@ function new_stage()
 	end
 end
 
--- debug keys require 3 taps within half a second, so an accidental single
--- press of a debug button during real play doesn't do anything
-debug_taps = {}
-function debug_triple_tap(name)
-	local t = debug_taps[name]
-	if not t then
-		t = {count = 0, frame = -999}
-		debug_taps[name] = t
-	end
-	if frame_count - t.frame <= 30 then
-		t.count += 1
-	else
-		t.count = 1
-	end
-	t.frame = frame_count
-	if t.count >= 3 then
-		t.count = 0
-		return true
-	end
-	return false
-end
-
 -- sets a ball's direction from a raw (dx,dy) vector, normalized to length
 -- 1 so the actual on-screen speed is always exactly ball.speed, no matter
 -- how steep the angle is (an un-normalized angle made sharper hits move
@@ -220,7 +232,7 @@ function set_dir(ball, dx, dy)
 end
 
 -- while split (pink flora out), paddle is 3x, taking priority over the
--- paddle-size item's 1.5x (they don't stack; 3x wins if both are active)
+-- paddle-size item's 2x (they don't stack; 3x wins if both are active)
 function update_paddle_width()
 	local mult = 1
 	local split_active = false
@@ -230,7 +242,7 @@ function update_paddle_width()
 	if split_active then
 		mult = 3
 	elseif paddle_big then
-		mult = 1.5
+		mult = 2
 	end
 	local new_w = paddle.base_w * mult
 	paddle.x -= (new_w - paddle.w) / 2
@@ -445,6 +457,36 @@ function _update()
 		return
 	end
 
+	-- debug menu: hold o+up together to open (pauses the game), same
+	-- combo again to close and apply the chosen stage/lives
+	local debug_combo_now = btn(4) and btn(2)
+	if debug_combo_now and not debug_combo_prev then
+		debug_menu_open = not debug_menu_open
+		if debug_menu_open then
+			debug_menu_stage = stage
+			debug_menu_life = lives
+			debug_menu_cursor = 1
+		else
+			stage = debug_menu_stage
+			lives = debug_menu_life
+			new_stage()
+		end
+	end
+	debug_combo_prev = debug_combo_now
+
+	if debug_menu_open then
+		if btnp(2) then debug_menu_cursor = 1 end
+		if btnp(3) then debug_menu_cursor = 2 end
+		if debug_menu_cursor == 1 then
+			if btnp(0) then debug_menu_stage = max(1, debug_menu_stage - 1) end
+			if btnp(1) then debug_menu_stage = min(5, debug_menu_stage + 1) end
+		else
+			if btnp(0) then debug_menu_life = max(1, debug_menu_life - 1) end
+			if btnp(1) then debug_menu_life = min(9, debug_menu_life + 1) end
+		end
+		return
+	end
+
 	-- paddle input
 	local paddle_move = 0
 	if btn(0) then
@@ -468,40 +510,26 @@ function _update()
 		end
 	end
 
-	-- debug: x button (3 taps) instantly clears the stage
-	if btnp(5) and debug_triple_tap("clear") then
-		for b in all(bricks) do
-			if b.breakable then
-				b.alive = false
-			end
-		end
-	end
-
-	-- debug: down arrow (3 taps) toggles "no life lost on miss" (up/down
-	-- aren't used for anything else in this game)
-	if btnp(3) and debug_triple_tap("inv") then
-		debug_invincible = not debug_invincible
-	end
-
-	-- debug: up arrow (3 taps) instantly jumps to the win/dance screen,
-	-- to check the victory dance without clearing all 5 stages first
-	if btnp(2) and debug_triple_tap("win") then
-		game_state = "win"
-		win_timer = 0
-		dance_state = "crawl_r"
-		dance_x = 24
-		dance_phase_timer = 0
-		dance_trips = 0
-		sfx(5)
-		music(0)
-	end
-
 	-- true while any split (pink) flora is active; used to keep the
 	-- paddle-size item from dropping during a split (it'd be pointless,
 	-- split already forces the paddle to its widest 3x)
 	local split_active = false
 	for b2 in all(balls) do
 		if b2.pink then split_active = true end
+	end
+
+	-- stage 5 entrance: 5s (150 frames) of nothing, then the ominous
+	-- melody kicks in and the block slides to rest over 8s (240 frames)
+	if stage5_entrance_wait > 0 then
+		stage5_entrance_wait -= 1
+		if stage5_entrance_wait <= 0 then
+			music(1)
+		end
+	elseif stage5_entrance_offset > 0 then
+		stage5_entrance_offset = max(0, stage5_entrance_offset - 150 / 240)
+		for b in all(bricks) do
+			b.x = b.entrance_x + stage5_entrance_offset
+		end
 	end
 
 	-- balls: movement + collisions
@@ -571,7 +599,7 @@ function _update()
 					local hit_pos = (ball.x - paddle.x) / paddle.w - 0.5
 					set_dir(ball, hit_pos * 2, -ball.dy)
 					dy_bounced = true
-					ball.speed = min(4, ball.speed + 0.1) -- arkanoid-style: speeds up on every paddle hit
+					ball.speed = min(4, ball.speed + 0.05) -- arkanoid-style: speeds up on every paddle hit (halved, since brick bounces now add speed too)
 					sfx(1)
 				end
 			end
@@ -621,6 +649,7 @@ function _update()
 						if not b.breakable then
 							sfx(9)
 						end
+						ball.speed = min(4, ball.speed + 0.02) -- arkanoid-style: brick bounces speed up too, but more gently than the paddle
 					end
 
 					if b.breakable or pierce then
@@ -700,7 +729,7 @@ function _update()
 			-- pop-up name banner for every kind except bebetori, which
 			-- already gets its own full-screen announcement
 			if it.kind != 4 then
-				item_banner_timer = 50
+				item_banner_timer = 80
 				item_banner_kind = it.kind
 			end
 
@@ -711,8 +740,9 @@ function _update()
 				end
 				sfx(5)
 			elseif it.kind == 2 then
-				-- paddle x1.5, lasts until the next miss (no timer)
+				-- paddle x2, for 30s or until the next miss, whichever's first
 				paddle_big = true
+				paddle_big_timer = 900
 				sfx(5)
 			elseif it.kind == 3 then
 				-- catch + launch for 15s
@@ -767,12 +797,11 @@ function _update()
 	end
 
 	if #balls == 0 then
-		if not debug_invincible then
-			lives -= 1
-		end
+		lives -= 1
 		paddle_big = false
 		sfx(3)
 		if lives <= 0 then
+			music(-1)
 			game_state = "lose"
 			sfx(4)
 		else
@@ -801,6 +830,12 @@ function _update()
 	if catch_timer > 0 then
 		catch_timer -= 1
 	end
+	if paddle_big and paddle_big_timer > 0 then
+		paddle_big_timer -= 1
+		if paddle_big_timer <= 0 then
+			paddle_big = false
+		end
+	end
 	if item_banner_timer > 0 then
 		item_banner_timer -= 1
 	end
@@ -811,6 +846,9 @@ function _update()
 		if b.alive and b.breakable then remaining += 1 end
 	end
 	if remaining == 0 then
+		if stage == 5 then
+			music(-1) -- stop stage 5's ominous loop right as it's cleared
+		end
 		-- freeze the scene right where it is (paddle, flora, whatever's
 		-- left of the particles) and announce the clear over the top of
 		-- it; the bonus-gather / win / next-stage branch happens once
@@ -858,7 +896,8 @@ function _draw()
 		end
 		if bonus_timer <= 90 then
 			local blink_col = (frame_count % 4 < 2) and 14 or 12
-			print("bonus +"..bonus_total, 40, 80, blink_col)
+			local msg = "bonus +"..bonus_total
+			print(msg, 64 - #msg * 2, 80, blink_col)
 		end
 		return
 	end
@@ -984,8 +1023,8 @@ function _draw()
 
 	print("score:"..score, 2, 2, 3)
 	print("stage:"..stage, 50, 2, 3)
-	spr(7, 96, 2)
-	print("x"..lives, 106, 2, 3)
+	spr(7, 102, 2)
+	print("x"..lives, 112, 2, 3)
 
 	if oneup_timer > 0 then
 		local blink_col = (frame_count % 4 < 2) and 14 or 12
@@ -996,21 +1035,21 @@ function _draw()
 	-- then the item's name quickly eases in from the left and settles
 	-- dead center, holds a moment, then the bar itself shrinks away
 	if item_banner_timer > 0 then
-		local t = 50 - item_banner_timer
+		local t = 80 - item_banner_timer
 		local line_h
 		if t < 6 then
 			local p = t / 6
 			line_h = flr((1 - (1 - p) * (1 - p)) * 9)
-		elseif t < 40 then
+		elseif t < 70 then
 			line_h = 9
 		else
-			local p = (t - 40) / 10
+			local p = (t - 70) / 10
 			line_h = flr((1 - p * p) * 9)
 		end
 		if line_h > 0 then
 			rectfill(0, 64 - line_h / 2, 127, 64 + line_h / 2 - 1, item_bar_colors[item_banner_kind])
 		end
-		if t >= 3 and t < 40 then
+		if t >= 3 and t < 70 then
 			local msg = item_names[item_banner_kind]
 			local msg_w = #msg * 4
 			local target_x = 64 - msg_w / 2
@@ -1021,7 +1060,17 @@ function _draw()
 		end
 	end
 
-	if game_state == "clear_freeze" then
+	if debug_menu_open then
+		-- everything above is the frozen play scene; this is a simple
+		-- paused overlay for jumping to a stage / setting lives
+		rectfill(24, 40, 103, 76, 1)
+		rect(24, 40, 103, 76, 7)
+		print("debug menu", 44, 44, 7)
+		local stage_col = (debug_menu_cursor == 1) and 14 or 7
+		local life_col = (debug_menu_cursor == 2) and 14 or 7
+		print("stage: "..debug_menu_stage, 32, 56, stage_col)
+		print("life: "..debug_menu_life, 32, 65, life_col)
+	elseif game_state == "clear_freeze" then
 		-- everything above (bricks, paddle, flora, fading particles) is
 		-- the real play scene, just frozen; this is only the text on top
 		local msg = "stage "..stage.." clear!"
@@ -1231,6 +1280,8 @@ __sfx__
 00400008180401c0401f040240401f0401c0401804013040000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 011000001c0601f060240602b0602b0602b0600000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 310200002f0602d0602f060350603f06500000000001f650206501e6501e650000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+002000080c0500a0500c0500705009050070500505003050000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 __music__
 03 0a404040
+03 0d404040
 
