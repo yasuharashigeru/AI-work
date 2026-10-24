@@ -46,15 +46,17 @@ blast_start = 0
 resolve_co = nil
 anim_frame = 0
 pieces_placed = 0
+rise_pending = false
+rise_phase = 0
+rise_start = 0
+rise_row = {}
 
-DROP_SPEED_START = 56
-DROP_SPEED_MIN = 12
-DROP_SPEED_STEP = 4
-PIECES_PER_LEVEL = 10
+DROP_SPEED = 56
+RISE_EVERY = 12
+RISE_FRAMES = 16
 
 function current_drop_speed()
-  local level = flr(pieces_placed / PIECES_PER_LEVEL)
-  return max(DROP_SPEED_MIN, DROP_SPEED_START - level * DROP_SPEED_STEP)
+  return DROP_SPEED
 end
 
 function _init()
@@ -73,6 +75,9 @@ function _init()
   blast_phase = 0
   resolve_co = nil
   pieces_placed = 0
+  rise_pending = false
+  rise_phase = 0
+  rise_row = {}
   next_pair = make_pair()
   spawn_piece()
   sfx(20, 3)
@@ -116,13 +121,14 @@ function same_shape(a, b)
   return (is_tama(a) and is_tama(b)) or (is_utsuwa(a) and is_utsuwa(b))
 end
 
--- kami forms from an unlike-color tama+utsuwa meeting; this is also
--- exactly the forbidden falling-pair combo (spec #4 / #14)
+-- experimental rule: a same-color tama+utsuwa meeting forms kami;
+-- that combination is excluded from falling pairs so kami is still
+-- born from pieces meeting on the board
 function can_form_kami(a, b)
   if a == 0 or b == 0 then
     return false
   end
-  if piece_color(a) == piece_color(b) then
+  if piece_color(a) ~= piece_color(b) then
     return false
   end
   return (is_tama(a) and is_utsuwa(b)) or (is_utsuwa(a) and is_tama(b))
@@ -258,6 +264,9 @@ function merge_piece_to_board(piece)
   sfx(2)
   current = nil
   pieces_placed += 1
+  if pieces_placed % RISE_EVERY == 0 then
+    rise_pending = true
+  end
   resolve_co = cocreate(resolve_board_co)
 end
 
@@ -295,7 +304,7 @@ function animate_gravity()
 end
 
 -- a falling piece fuses into the existing piece it lands on, if the
--- pair is tama+utsuwa of opposite colors (spec #5 / #14)
+-- pair is a same-color tama+utsuwa
 function find_fusions()
   local found = {}
   local used = {}
@@ -404,9 +413,9 @@ function split_key(key)
   return parts[1], parts[2]
 end
 
--- opposite-color kami touching orthogonally ignite; the 3x3 blast
--- around each ignited kami clears everything and detonates any other
--- kami caught in it, regardless of color (spec #20-24)
+-- opposite-color kami touching orthogonally ignite; each blast clears
+-- only its own cell and the four orthogonal neighbours. kami caught in
+-- that cross detonate too, but diagonal kami and pieces are untouched.
 function resolve_kami_explosion()
   local exploded = {}
   local queue = {}
@@ -443,24 +452,23 @@ function resolve_kami_explosion()
   end
 
   local cleared = {}
+  local blast_offsets = {{0, 0}, {0, -1}, {0, 1}, {-1, 0}, {1, 0}}
   local qi = 1
   while qi <= #queue do
     local ex, ey = queue[qi][1], queue[qi][2]
     qi += 1
-    cleared[ex .. ":" .. ey] = true
-    for dy = -1, 1 do
-      for dx = -1, 1 do
-        local bx, by = ex + dx, ey + dy
-        if bx >= 1 and bx <= board_w and by >= 1 and by <= board_h then
-          local id = board[by][bx]
-          if id ~= 0 then
-            cleared[bx .. ":" .. by] = true
-            if is_kami(id) then
-              local k = bx .. ":" .. by
-              if not exploded[k] then
-                exploded[k] = true
-                queue[#queue + 1] = {bx, by}
-              end
+    for i = 1, #blast_offsets do
+      local bx = ex + blast_offsets[i][1]
+      local by = ey + blast_offsets[i][2]
+      if bx >= 1 and bx <= board_w and by >= 1 and by <= board_h then
+        local id = board[by][bx]
+        if id ~= 0 then
+          cleared[bx .. ":" .. by] = true
+          if is_kami(id) then
+            local k = bx .. ":" .. by
+            if not exploded[k] then
+              exploded[k] = true
+              queue[#queue + 1] = {bx, by}
             end
           end
         end
@@ -652,6 +660,47 @@ function resolve_board_co()
   last_chain = chain
 end
 
+-- after every twelfth placed pair, a full random row slides in from
+-- below, giving the player more room to build chains between rises.
+function rise_board_co()
+  for x = 1, board_w do
+    if board[1][x] ~= EMPTY then
+      game_over = true
+      sfx(10)
+      return
+    end
+  end
+
+  rise_row = {}
+  for x = 1, board_w do
+    rise_row[x] = rand_kind()
+  end
+  rise_phase = 1
+  rise_start = anim_frame
+  wait_frames(RISE_FRAMES)
+
+  for y = 1, board_h - 1 do
+    for x = 1, board_w do
+      board[y][x] = board[y + 1][x]
+    end
+  end
+  for x = 1, board_w do
+    board[board_h][x] = rise_row[x]
+  end
+  rise_row = {}
+  rise_phase = 0
+  shake_timer = max(shake_timer, 4)
+  resolve_board_co()
+end
+
+function rise_draw_offset()
+  if rise_phase == 0 then
+    return 0
+  end
+  local age = min(RISE_FRAMES - 1, anim_frame - rise_start)
+  return -flr(age * cell / (RISE_FRAMES - 1))
+end
+
 -->8
 -- update / draw
 
@@ -694,7 +743,12 @@ function _update60()
     if costatus(resolve_co) == "dead" then
       resolve_co = nil
       if not game_over then
-        spawn_piece()
+        if rise_pending then
+          rise_pending = false
+          resolve_co = cocreate(rise_board_co)
+        else
+          spawn_piece()
+        end
       end
     end
     return
@@ -716,6 +770,9 @@ function _update60()
       blast_fx = {}
       blast_phase = 0
       pieces_placed = 0
+      rise_pending = false
+      rise_phase = 0
+      rise_row = {}
       game_over = false
       next_pair = make_pair()
       spawn_piece()
@@ -779,11 +836,11 @@ function _update60()
   end
 
   if btnp(4) then
-    rotate_piece_cw()
+    rotate_piece_ccw()
   end
 
   if btnp(5) then
-    rotate_piece_ccw()
+    rotate_piece_cw()
   end
 
   if btnp(2) then
@@ -882,14 +939,22 @@ function _draw()
   rectfill(board_x - 3, board_y - 3, board_x + board_w * cell + 2, board_y + board_h * cell + 2, 6)
   rect(board_x - 2, board_y - 2, board_x + board_w * cell + 1, board_y + board_h * cell + 1, 7)
 
+  local rise_dy = rise_draw_offset()
+  clip(board_x, board_y, board_w * cell, board_h * cell)
   for y = 1, board_h do
     for x = 1, board_w do
       local kind = board[y][x]
       if kind ~= 0 and not is_fusing_cell(x, y) then
-        draw_piece(board_x + (x - 1) * cell, board_y + (y - 1) * cell, kind)
+        draw_piece(board_x + (x - 1) * cell, board_y + (y - 1) * cell + rise_dy, kind)
       end
     end
   end
+  if rise_phase > 0 then
+    for x = 1, board_w do
+      draw_piece(board_x + (x - 1) * cell, board_y + board_h * cell + rise_dy, rise_row[x])
+    end
+  end
+  clip()
 
   draw_fusions()
   draw_blasts()
